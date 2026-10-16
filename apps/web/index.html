@@ -2,9 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="description" content="Zipply — private, direct browser-to-browser file sharing." />
     <title>Zipply</title>
+    <!-- No-flash theme; keep in sync with src/features/settings/theme.ts. CSP hash needed in P5. -->
+    <script>
+      (function () {
+        var t;
+        try {
+          t = localStorage.getItem('zipply-theme');
+        } catch (e) {}
+        var d =
+          t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('dark', d);
+        document.documentElement.style.colorScheme = d ? 'dark' : 'light';
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

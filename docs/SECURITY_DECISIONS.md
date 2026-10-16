@@ -95,6 +95,7 @@ The threat model table in `Zipply_Project_Plan.md` §38.1 and the release-blocki
   - Planned CSP (via `apps/web/vercel.json`, P5-08): `default-src 'self'; script-src 'self' 'sha256-<theme-script>'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' wss://<worker-host>; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`.
   - Planned headers: HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`, and a restrictive `Permissions-Policy` (camera limited to self from P7).
   - Supply chain: committed lockfile, `npm ci`, few runtime dependencies (react and react-dom; lazily loaded QR libraries in P7 only), `npm audit --audit-level=high` in CI, gitleaks, and CodeQL (P5-10).
+- `apps/web/index.html` contains one inline no-flash theme script, so P5-08 must add its `sha256-…` hash to `script-src`. Dev-only demo fixtures (`?demo=`) are compiled out of production builds (verified by grep and a production e2e test).
 - **Residual risk (documented, not solved):** CSP does not govern `RTCPeerConnection`, so it cannot stop malicious served JavaScript from sending data out over WebRTC. A compromised origin or build pipeline can bypass every client-side control. Mitigations are published release hashes and a self-hosting guide (P8-06).
 
 ## SD-10 — Durable Objects without storage records; liveness and lease sweep

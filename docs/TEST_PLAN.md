@@ -17,7 +17,7 @@ A passing suite is a regression baseline for the defined threat model. It does n
 | Transfer performance       | dedicated benchmark harness                                          | throughput, memory, resume time                                                  | P6                    |
 | Manual                     | real devices and networks                                            | Safari/iOS/Android, Wi-Fi/hotspot/VPN/separate networks, screen readers          | P5–P8                 |
 
-Root commands: `npm run check` (lint + typecheck + unit tests + format check), `npm run build`. Playwright (`npm run e2e`) is added in P2.
+Root commands: `npm run check` (lint + typecheck + unit tests + format check), `npm run build`, `npm run e2e` (Playwright: starts the Vite dev server for `?demo=` fixture tests and a production preview on port 4173; first run needs `npx playwright install chromium firefox webkit`).
 
 ## 2. Phase-by-phase inventory
 
