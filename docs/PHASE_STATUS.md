@@ -13,7 +13,7 @@
 
 ## Phase 1 task log
 
-Environment for all evidence unless stated: Windows 11 Home 10.0.26300, Node v22.14.0, npm 11.15.0, git 2.49.0, Git Bash. Date: 2026-10-16. Branch `phase-1-foundation` (local only, no remote).
+Environment for Phase 1 evidence unless stated: Windows 11 Home 10.0.26300, Node v22.14.0 (re-verified on Node v24.22.0 after the toolchain update, see below), npm 11.15.0, git 2.49.0, Git Bash. Date: 2026-10-16. Branch `phase-1-foundation` (local only, no remote).
 
 | Task  | Status      | Commit(s)            | Notes/limits                                                                      |
 | ----- | ----------- | -------------------- | --------------------------------------------------------------------------------- |
@@ -25,7 +25,7 @@ Environment for all evidence unless stated: Windows 11 Home 10.0.26300, Node v22
 | P1-06 | DONE        | `11d50a5`            | `react/no-danger` implemented via `no-restricted-syntax` (no extra plugin)        |
 | P1-07 | DONE (file) | `247a2af`            | **CI run NOT VERIFIED**: needs approved GitHub remote + push                      |
 | P1-08 | DONE        | `479dd63`            | local simulation; a real Vercel build needs approval                              |
-| P1-09 | DONE        | `247a2af`            | copyright holder `Eclipsaaaaa` (owner's git identity)                             |
+| P1-09 | DONE        | `247a2af`            | copyright holder `valhae` (renamed from `Eclipsaaaaa` on 2026-10-16)              |
 
 ### Evidence (exact commands → actual results)
 
@@ -85,6 +85,19 @@ Environment for all evidence unless stated: Windows 11 Home 10.0.26300, Node v22
 - `@cloudflare/vitest-pool-workers` (named in the roadmap) is deprecated; it pinned a vulnerable miniflare (3 high, 2 moderate via `sharp`/`undici`). It was replaced by its official successor `@cloudflare/vitest-plugin@1.4.4`, which uses the same `wrangler@4.151.1`.
 - `npm audit --audit-level=high` → 0 vulnerabilities, with no `overrides`.
 
+**Toolchain update and owner rename (2026-10-16, after the Phase 1 report; left uncommitted for the owner to commit)**
+
+- Local Node upgraded from v22.14.0 to **v24.22.0 LTS** using the official MSI from nodejs.org. Its SHA-256 `97ebad47…175088` matched the published `SHASUMS256.txt`; `msiexec` exit 0. Only one Node install remains. npm stays at the bundled 11.15.0 (npm 12 is a new major and CI's Node 24 also ships npm 11).
+- `.nvmrc` 22 → 24; root `engines.node` → `>=24.15.0`; `jsdom` 29 → 30.1.3 (needs Node ≥ 24.15). Lockfile regenerated with a clean install.
+- `npm outdated` now lists only TypeScript 7.0.2. It is still blocked because `typescript-eslint` supports TypeScript < 6.1; ESLint 10 is likewise blocked by `eslint-plugin-jsx-a11y` (≤ 9). Every other dependency is at its latest release.
+- Copyright holder in `LICENSE` changed to `valhae`.
+- Re-verified on Node v24.22.0:
+  - `npm run check` → exit 0 (tests 31 + 9 + 2 passed, 0 warnings)
+  - `npm run build` → exit 0
+  - `npm audit --audit-level=high` → 0
+  - clean copy of the working tree: root `npm ci` + `npm run check` → exit 0; `apps/web` install + build (Vercel-style) → exit 0
+  - `wrangler dev` `/healthz` → 200; Vite dev server served the page.
+
 ### Phase 1 exit criteria
 
 | #   | Criterion                                                                            | Result                                   |
@@ -101,38 +114,38 @@ Environment for all evidence unless stated: Windows 11 Home 10.0.26300, Node v22
 
 ## Decisions log
 
-| ID  | Decision                                                                                                        | Date       | Status                                                               |
-| --- | --------------------------------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------- |
-| —   | Initial roadmap and Phase 1 scope approved                                                                      | 2026-10-16 | APPROVED by owner                                                    |
-| D1  | License: MIT (copyright line uses the owner's git identity `Eclipsaaaaa`; change if a different name is wanted) | 2026-10-16 | APPROVED by owner                                                    |
-| —   | Local git commits on a phase branch are allowed; no remote, no push                                             | 2026-10-16 | APPROVED by owner                                                    |
-| D2  | `ctx.storage.setAlarm()` used only as a timer for lease sweep                                                   | —          | PROPOSED (needed by P4-03)                                           |
-| D3  | SAS v1 commit-then-reveal, six words                                                                            | —          | PROPOSED (needed by P3-03)                                           |
-| D4  | New DTLS association → fresh SAS; `restartIce()` first                                                          | —          | PROPOSED (needed by P6-05)                                           |
-| D5  | Integrity: per-chunk SHA-256 + digest-list root + read-back, no new dependency                                  | —          | PROPOSED (needed by P3-05/P6-02)                                     |
-| D6  | STUN: `stun.cloudflare.com:3478` (free status unverified) vs Google                                             | —          | PROPOSED (needed by P3-02)                                           |
-| D7  | Per-IP rate limiting via Workers Rate Limiting binding only if confirmed on Free plan                           | —          | PROPOSED (needed by P4-05)                                           |
-| D8  | Shared `packages/protocol` workspace consumed as TS source                                                      | 2026-10-16 | APPLIED in Phase 1 as part of the approved roadmap (P1-05)           |
-| D9  | Hand-written strict validators (no runtime dependency)                                                          | 2026-10-16 | APPLIED PROVISIONALLY in P1-05 (envelope only); confirm before P4-01 |
-| D10 | SAS wordlist: BIP-39 English (license to confirm)                                                               | —          | PROPOSED (needed by P3-03)                                           |
-| D11 | Fonts: self-host Geist + Geist Mono; Geist Pixel only if licensed; no Source Serif 4                            | —          | PROPOSED (needed by P2-02)                                           |
-| D12 | Heartbeat 20 s / TTL 60 s via auto-response ping                                                                | —          | PROPOSED (needed by P4-03)                                           |
-| D13 | First public tag `v0.1.0`                                                                                       | —          | PROPOSED (needed by P8-07)                                           |
-| D14 | External actions approved individually (GitHub repo, staging Worker, Vercel, PSI key)                           | —          | STANDING RULE; none approved yet                                     |
-| D15 | Cross-phase parallelism                                                                                         | —          | Default: strict sequence                                             |
-| D16 | Available test devices                                                                                          | —          | OPEN — owner to list                                                 |
-| D17 | `Zipply_Project_Plan.md` unchanged; conflicts resolved in docs                                                  | 2026-10-16 | APPLIED (spec untouched, verified by `git diff 903414e HEAD`)        |
-| D18 | Independent review of SAS design before public release                                                          | —          | PROPOSED                                                             |
+| ID  | Decision                                                                              | Date       | Status                                                               |
+| --- | ------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------- |
+| —   | Initial roadmap and Phase 1 scope approved                                            | 2026-10-16 | APPROVED by owner                                                    |
+| D1  | License: MIT; copyright holder `valhae` (owner name updated 2026-10-16)               | 2026-10-16 | APPROVED by owner                                                    |
+| —   | Local git commits on a phase branch are allowed; no remote, no push                   | 2026-10-16 | APPROVED by owner                                                    |
+| D2  | `ctx.storage.setAlarm()` used only as a timer for lease sweep                         | —          | PROPOSED (needed by P4-03)                                           |
+| D3  | SAS v1 commit-then-reveal, six words                                                  | —          | PROPOSED (needed by P3-03)                                           |
+| D4  | New DTLS association → fresh SAS; `restartIce()` first                                | —          | PROPOSED (needed by P6-05)                                           |
+| D5  | Integrity: per-chunk SHA-256 + digest-list root + read-back, no new dependency        | —          | PROPOSED (needed by P3-05/P6-02)                                     |
+| D6  | STUN: `stun.cloudflare.com:3478` (free status unverified) vs Google                   | —          | PROPOSED (needed by P3-02)                                           |
+| D7  | Per-IP rate limiting via Workers Rate Limiting binding only if confirmed on Free plan | —          | PROPOSED (needed by P4-05)                                           |
+| D8  | Shared `packages/protocol` workspace consumed as TS source                            | 2026-10-16 | APPLIED in Phase 1 as part of the approved roadmap (P1-05)           |
+| D9  | Hand-written strict validators (no runtime dependency)                                | 2026-10-16 | APPLIED PROVISIONALLY in P1-05 (envelope only); confirm before P4-01 |
+| D10 | SAS wordlist: BIP-39 English (license to confirm)                                     | —          | PROPOSED (needed by P3-03)                                           |
+| D11 | Fonts: self-host Geist + Geist Mono; Geist Pixel only if licensed; no Source Serif 4  | —          | PROPOSED (needed by P2-02)                                           |
+| D12 | Heartbeat 20 s / TTL 60 s via auto-response ping                                      | —          | PROPOSED (needed by P4-03)                                           |
+| D13 | First public tag `v0.1.0`                                                             | —          | PROPOSED (needed by P8-07)                                           |
+| D14 | External actions approved individually (GitHub repo, staging Worker, Vercel, PSI key) | —          | STANDING RULE; none approved yet                                     |
+| D15 | Cross-phase parallelism                                                               | —          | Default: strict sequence                                             |
+| D16 | Available test devices                                                                | —          | OPEN — owner to list                                                 |
+| D17 | `Zipply_Project_Plan.md` unchanged; conflicts resolved in docs                        | 2026-10-16 | APPLIED (spec untouched, verified by `git diff 903414e HEAD`)        |
+| D18 | Independent review of SAS design before public release                                | —          | PROPOSED                                                             |
 
 ## Open risks
 
-| ID  | Risk                                                                                 | Mitigation / status                                                                            |
-| --- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| R1  | SAS fingerprint extraction differs across browsers                                   | P3-01 spike, release-blocking                                                                  |
-| R2  | Free-quota exhaustion or abuse DoS                                                   | auto-response heartbeats, limits, honest "temporarily unavailable" state                       |
-| R3  | 10 GB receive infeasible on some browsers                                            | capability detection, reject before transfer, published matrix (P6)                            |
-| R4  | Users confirm SAS without comparing                                                  | copy/UX friction; residual                                                                     |
-| R5  | Supply-chain or served-JS compromise                                                 | minimal deps, lockfile, audit, SHA-pinned actions, CSP, release hashes; residual               |
-| R6  | Scope creep from spec §43/§45                                                        | post-MVP by roadmap                                                                            |
-| R7  | Local Node v22.14.0 is older than some current tools want (jsdom 30 needs ≥ 22.22.2) | jsdom pinned to 29; recommend upgrading local Node to the latest 22.x LTS; CI uses latest 22.x |
-| R8  | CI and gitleaks have never actually run                                              | first push after owner approves a GitHub remote                                                |
+| ID  | Risk                                                                 | Mitigation / status                                                              |
+| --- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| R1  | SAS fingerprint extraction differs across browsers                   | P3-01 spike, release-blocking                                                    |
+| R2  | Free-quota exhaustion or abuse DoS                                   | auto-response heartbeats, limits, honest "temporarily unavailable" state         |
+| R3  | 10 GB receive infeasible on some browsers                            | capability detection, reject before transfer, published matrix (P6)              |
+| R4  | Users confirm SAS without comparing                                  | copy/UX friction; residual                                                       |
+| R5  | Supply-chain or served-JS compromise                                 | minimal deps, lockfile, audit, SHA-pinned actions, CSP, release hashes; residual |
+| R6  | Scope creep from spec §43/§45                                        | post-MVP by roadmap                                                              |
+| R7  | (Resolved 2026-10-16) Local Node was older than current tools needed | Local Node upgraded to v24.22.0 LTS; `.nvmrc` = 24; jsdom 30                     |
+| R8  | CI and gitleaks have never actually run                              | first push after owner approves a GitHub remote                                  |

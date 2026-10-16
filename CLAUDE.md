@@ -21,7 +21,7 @@ Roadmap: `docs/IMPLEMENTATION_ROADMAP.md`. Current phase + evidence: `docs/PHASE
 ## Requires explicit user approval
 
 Creating/pushing a GitHub remote, any deploy (Cloudflare, Vercel, preview or prod), adding paid services or changing billing, adding a runtime dependency, changing protocol semantics or security decisions, editing `Zipply_Project_Plan.md`.
-Local commits on a phase branch are approved (2026-10-16); never push.
+Git: the owner (valhae) commits, pushes and merges manually. Leave changes uncommitted unless explicitly asked to commit; never push.
 
 ## Commands (root)
 

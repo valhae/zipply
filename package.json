@@ -7,7 +7,7 @@
     "apps/*"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=24.15.0"
   },
   "scripts": {
     "lint": "eslint .",

@@ -12,7 +12,7 @@ Privacy-first, browser-to-browser file sharing: no accounts, no server-side file
 
 ## Development
 
-Requires Node.js 22 (see `.nvmrc`) and npm.
+Requires Node.js 24 LTS (≥ 24.15, see `.nvmrc`) and npm 11.
 
 ```sh
 npm ci                          # install from the lockfile
