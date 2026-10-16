@@ -1,0 +1,232 @@
+# Zipply — Implementation Roadmap
+
+Status: **Approved by the project owner on 2026-10-16** (initial roadmap and Phase 1 scope). Later phases each need explicit approval before work starts (see `docs/PHASE_STATUS.md`).
+
+This document is the single source of truth for phase scope, task IDs, dependencies, acceptance criteria and tests. The canonical product requirements remain in `Zipply_Project_Plan.md` (unchanged, per decision D17). Security rationale lives in `docs/SECURITY_DECISIONS.md`, and test strategy and targets in `docs/TEST_PLAN.md`.
+
+## The eight phases (fixed order and names)
+
+1. Project foundation and development tooling
+2. Responsive UI/UX and radar interface
+3. Core WebRTC file transfer
+4. Online device discovery using Cloudflare
+5. Security, peer authentication, and receiver consent
+6. Large-file optimization, integrity verification, and resumable transfers
+7. Offline QR/manual pairing and offline website caching
+8. Comprehensive testing, performance optimization, and release readiness
+
+Phases are not combined, removed, renamed or reordered without the owner's approval.
+
+## Reference conventions used below
+
+- `§6.x` → the matching entry in `docs/SECURITY_DECISIONS.md` (SD-01 … SD-11).
+- `Cn` → the conflict table in the "Planning findings" section of this document.
+- `Dn` → the decisions log in `docs/PHASE_STATUS.md`.
+- `§nn` without a decimal (e.g. §31, §38.7, §40) → a section of `Zipply_Project_Plan.md`.
+- Tags: **[V]** verified during planning on 2026-10-16, **[I]** inferred, **[U]** unverified — must be proven before relying on it.
+
+## Old phase labels → the eight authoritative phases
+
+The spec carries four overlapping sequencing schemes: §11 "Phase 0–6", §25 "Milestones A–E", §43.1/43.6 "MVP / Phase 2 / later", §45 "Release 1.0–2.x". None match the eight phases. The spec stays as it is (§10 D17). Mapping:
+
+| Spec label | Content | → New phase(s) |
+|---|---|---|
+| §11 Phase 0 / Milestone A | repo, license, README, scaffold web + Worker, lint/test, protocol v1 | **P1** (scaffold, tooling, CI, protocol package skeleton); Durable Object + `/ws` move to **P4** |
+| §11 Phase 1 / Milestone B | manual offer/answer, DataChannel, chunking, backpressure, manifest + approval, SHA-256 | **P3** (uses a dev-only same-browser signaling harness, plus a **minimum SAS + consent gate** before any manifest/bytes); manual copy/paste UI → **P7** |
+| §11 Phase 2 / Milestone C | WSS, presence, heartbeat, validation, rooms, rate limits, relay of offer/answer/ICE | **P4** (baseline controls); adversarial hardening → **P5**; "reconnect handshake that resumes transfer" → **P6** |
+| §11 Phase 3 | auto radar UX, visibility, errors | static radar/peer list/visibility UI → **P2**; live wiring → **P4** |
+| §11 Phase 4 / Milestone D | multi-file, manifest preview, approval, queue, large files, resume | basic queue + accept/reject → **P3**; hardened consent UX → **P5**; sinks, resume, checkpoints → **P6** |
+| §11 Phase 5 / Milestone E (part) | PWA, SW cache, manual + QR pairing | **P7** |
+| §11 Phase 6 / Milestone E (rest) | security audit, cross-browser beta, docs, tag | security → **P5**; browser/network matrix, docs, release → **P8** |
+| §43.6 "MVP / ship first" | one-time tickets, consent, exact bytes, chunk hashes, resume, debug view, benchmark | tickets → P4 (private-room invite capability) + P5; resume/benchmark/debug view → P6 |
+| §43.1 "Phase 2" (paired device identities) | persistent device keys | **Post-MVP (Release 1.2)**, outside the eight phases |
+| §45 Release 1.1–2.x | BLAKE3, multi-lane, folders, pairing, multi-recipient, native | **Post-MVP**; not scheduled |
+| §25 "Tag v0.1.0" vs §45 "Release 1.0" | release naming conflict | decide in §10 D13 |
+
+---
+
+
+## Planning findings (from the approved planning session)
+
+### 3.1 Conflicts inside the spec (none silently resolved)
+
+| # | Conflict | Proposed resolution | Tag |
+|---|---|---|---|
+| C1 | Heartbeat/TTL 20 s/60 s (§17) vs 25 s/75 s (§19 `.dev.vars`) | Use 20/60 from §17 (the "defaults" table); D12 | V |
+| C2 | `hello.visibility: "public"/"private"` (§20) conflates **scope** (public lobby vs private room) with **discoverability** (visible/invisible, default invisible per §4/§17) | Two separate fields: `scope` via route + capability, `discoverable: boolean` (default `false`) | V |
+| C3 | §29 says Free plan "permits" SQLite-backed DOs | Cloudflare docs (fetched today) say Free plan accounts **can only** create SQLite-backed DOs. Requires `new_sqlite_classes` in the wrangler migration even though Zipply makes no SQL calls. Not a requirement violation. | V |
+| C4 | Lease expiry needs a timer, but `setTimeout`/`setInterval` **prevent hibernation**, and `ctx.storage.setAlarm()` **counts as a SQLite row write** (Cloudflare docs). §29 forbids `storage.get/put/delete/sql` but doesn't mention alarms. | D2: allow `setAlarm()` purely as a timer (no application records), or go alarm-free with lazy sweep and accept ghost-presence risk | V |
+| C5 | §21 "mutex", "single in-memory instance", "bounded outbound queues, disconnect slow consumers" is generic-server text | Outdated for DOs: they are single-threaded (no mutex). The Workers `WebSocket` doesn't expose outbound backpressure, so we cap inbound rate and room size instead. State that must survive hibernation lives in socket attachments (max **16,384 bytes** each, per today's docs). | V/I |
+| C6 | §11 Phase 1 puts "manifest + receiver approval" in the PoC before any SAS exists. That contradicts §38.3 (no manifest before SAS). | P3 implements the SAS gate before any manifest path | V |
+| C7 | §3/§30 "Web Crypto SHA-256 whole-file hash" — `crypto.subtle.digest` is **one-shot, not incremental** | Can't hash 10 GB in bounded memory with Web Crypto alone. D5: per-chunk SHA-256 + digest-list root + post-commit read-back (no new dep), or add a reviewed incremental SHA-256 lib | V (API shape) |
+| C8 | §35.7/§38.3.9 "new SAS on every new DTLS association" vs resume UX | Prefer `restartIce()` (keeps the same DTLS association, so no new SAS — **[U]**, prove in P3-01). Optional certificate-reuse pinning (D4). Default is the spec rule. | U |
+| C9 | §38.3 nonces have no **commitment**, so a signaling MITM picks its values after seeing the honest party's | Add commit-then-reveal (§6.3). This makes MITM success exactly 2^-66 per attempt. | I (design analysis) |
+| C10 | §4 "private rooms" and §43.1 "one-time tickets/QR" overlap | One mechanism: a private-room **invite capability** (random + expiry). The SAS still applies. | I |
+| C11 | Design skill says load fonts from Google Fonts; spec §37/§41 says self-host, no third-party | Self-host (privacy constraint outranks styling) | V |
+| C12 | Design skill: fixed left nav sidebar ≥1024 px (portfolio pattern) | Zipply has one screen. At ≥1024 px use the sidebar slot for status/visibility/room controls, otherwise skip it (spec §10 allows that). | I |
+| C13 | §9 tree has `SECURITY.md` both at root and in `docs/`, plus vague `services/`, `hooks/`, `types/` | Root `SECURITY.md` (reporting policy) + `docs/SECURITY_DECISIONS.md` (threat model). Drop the vague folders (§5). | V |
+| C14 | §7/§36 "authenticated `transfer-cancel` … over signaling as fallback" | A signaling-routed message **cannot be authenticated** (the MITM controls that path). Treat it as advisory: it may only stop or pause, never start, resume, or accept. Fail-closed direction only. | I |
+| C15 | "Per-IP rate limits" (§8) | A DO only sees its own room. A global per-IP limit needs the Workers Rate Limiting binding (per-location, eventually consistent, 10/60 s periods). Free-plan availability is **[U]**. D7. | V/U |
+| C16 | §46 "enable TLS 1.3 at Cloudflare edge" | `*.workers.dev` has no zone TLS settings. Configurable TLS needs a custom domain. On workers.dev, verify the negotiated version only. | I |
+| C17 | 64 KiB chunk **plus** binary header can exceed a 64 KiB `maxMessageSize` | Payload = `min(configured, maxMessageSize) − headerBytes`. Measure per browser in P3-01. | U |
+| C18 | §25 "tag v0.1.0" vs §45 "Release 1.0" | D13 | V |
+| C19 | Geist Pixel licence/redistribution | Verify before bundling; fallback is Geist Mono uppercase (per skill) | U |
+
+### 3.2 Feasibility gaps / technical limits
+
+- **CSP does not govern WebRTC** (`connect-src` does not restrict `RTCPeerConnection`). Malicious served JS could exfiltrate over WebRTC, so this stays a residual risk. **[V-known platform behaviour]**
+- **Origin checks stop browsers only.** Non-browser clients can forge `Origin`, so rate limits and caps are the real abuse controls. **[I]**
+- **Quota math (Free plan, verified today):** 100k DO requests/day, 13,000 GB-s/day billed at 128 MB per object. That's 104,000 awake-object-seconds/day, about 28.9 h. Incoming WS messages bill at 20:1, outgoing messages are free, and **`setWebSocketAutoResponse` replies incur no duration**. So a plain JSON heartbeat every 20 s from any client keeps a room DO awake almost permanently (~10,800 GB-s/day for one room, i.e. most of the quota). **Heartbeats must use auto-response ping/pong**, with a low-frequency sweep (D2). Workers Free: 100k requests/day and 10 ms CPU per request. **[V]**
+- **Vercel Hobby:** non-commercial personal use only. 100 GB Fast Data Transfer, 1M CDN requests/month, 100 deployments/day. npm-workspace monorepos are supported with Root Directory = `apps/web`, and skip-unaffected-builds requires GitHub plus proper `workspaces` declarations. **[V]** Building a sibling `packages/protocol` from `apps/web` root is **[I]**, to be proven in P1-09.
+- **Large-file sinks:** File System Access `showSaveFilePicker` is Chromium-desktop-centric. OPFS is broad, but Safari/Firefox quotas and the "export from OPFS to Downloads" path for 10 GB are **[U]**. iOS Safari memory/background limits are severe **[I]**.
+- **Playwright WebRTC:** Chromium two-context DataChannels on localhost are expected to work **[I]**. Firefox **[U]**, WebKit-on-Windows **[U]**. Real Safari/iOS needs devices.
+- **QR capacity:** a full SDP with candidates is often >1–2 KB. One dense QR is unreliable, so P7 needs compaction and/or multi-part QR **[I]**. `BarcodeDetector` isn't available on Windows Chrome, Firefox, or Safari **[I]**, so scanning there needs a lazy-loaded fallback.
+- **Offline LAN:** Chrome obfuscates host candidates as mDNS `.local`. With no internet, STUN fails and only host candidates remain, so success depends on multicast/AP isolation **[I]**.
+
+### 3.3 Assumptions (confirm or correct)
+
+A1 Solo maintainer, public GitHub repo under the user's account. A2 The user has (or will create) free Cloudflare, Vercel, and GitHub accounts. A3 The user can test on at least one Android and one iOS device, plus Windows Chrome/Edge/Firefox; macOS Safari is optional. A4 npm workspaces (no pnpm/turbo). A5 English-only UI for MVP.
+
+### 3.4 Top risks
+
+R1 SAS fingerprint extraction differs across browsers (P3-01 spike, release-blocking). R2 Free-quota exhaustion or abuse DoS: design to degrade honestly. R3 10 GB receive is infeasible on some browsers: publish a matrix and reject before transfer. R4 Human-factor SAS failure (users click "match" without comparing): copy, friction, and docs, but it can't be eliminated. R5 Supply-chain/served-JS compromise: minimal deps, lockfile, CSP, release hashes, still residual. R6 Scope creep from the §43/§45 feature lists: they are explicitly post-MVP.
+
+---
+
+
+## Phase task tables
+
+Task fields: **Out** = scope/output · **Dep** = prerequisites · **AC** = acceptance criteria · **Test** · **Sec** = security/privacy · **DoD/Lim** = definition of done / known limits. Every task's DoD also includes: tests pass locally, `npm run check` is green, the diff is reviewed, and `docs/PHASE_STATUS.md` is updated with evidence. Phase exits require the user's approval before the next phase starts.
+
+**Sequencing rules:** P2 builds only the UI foundation and a radar driven by fixture data; no decorative polish blocks P3. P3 never ships an unsafe payload path: the SAS + consent gate (P3-03/04) lands **before** manifest and chunk sending (P3-06/07), and the transfer UI is reachable only through a dev harness until P4/P5. P5 hardens and adversarially tests what P3 built minimally.
+
+**Critical path:** P1 → P3-01 spike → P3 → P4 → P5 → P6 → P8. **Parallelizable with approval** (crosses phase boundaries): P2 alongside P3, P4-01..06 (Worker) alongside P3, P7-01/02 (SW) after P2.
+
+### Phase 1 — Project foundation and development tooling
+| ID | Out | Dep | AC | Test | Sec | DoD/Lim |
+|---|---|---|---|---|---|---|
+| P1-01 | `git init`, `.gitignore`, `.editorconfig`, `.nvmrc`=22, root `package.json` (private, `workspaces: [apps/*, packages/*]`), first commit of spec + skill | approval of plan | `git status` clean after commit; `.env*`, `.dev.vars`, `node_modules`, `dist`, `.wrangler` ignored | `git check-ignore` on sample paths | no secrets committed | local only, no remote |
+| P1-02 | `CLAUDE.md` + 4 docs (contents approved in the planning session) | P1-01 | files match approved §8 content | review | n/a | committed |
+| P1-03 | `apps/web` from Vite react-ts template, demo removed, strict TS, Vitest + RTL + jsdom, one smoke test | P1-01 | `npm run build -w apps/web` and `test` pass; only runtime deps react/react-dom | Vitest smoke | no external requests in built HTML | — |
+| P1-04 | `apps/signaling` Worker with `GET /healthz` → 200 `ok`, every other path → 404; `wrangler.jsonc` (compat date pinned, no DO yet); Vitest + `@cloudflare/vitest-pool-workers` | P1-01 | `wrangler dev` serves `/healthz` locally; tests pass on Windows | Worker unit test | no logging of request bodies | no deploy |
+| P1-05 | `packages/protocol`: `PROTOCOL_VERSION=1`, `Envelope` type, `parseEnvelope()` (strict: object, version, type string, size cap) | P1-03/04 | imported by both apps and builds in Vite **and** Wrangler | unit + malformed-input tests | rejects unknown fields | consumed as TS source |
+| P1-06 | ESLint flat config (typescript-eslint, react-hooks, jsx-a11y, `react/no-danger: error`, restricted cross-app imports), Prettier, root scripts `lint/typecheck/test/build/format:check/check` | P1-03..05 | `npm run check` green; a planted cross-app import fails lint | run check | lint guards XSS sink | — |
+| P1-07 | `.github/workflows/ci.yml`: Node 22, `npm ci`, `check`, `build`, `npm audit --audit-level=high`, gitleaks action; least-privilege `permissions: contents: read` | P1-06 | YAML committed; **runs only after the user approves creating/pushing the GitHub repo** | first CI run green (post-approval) | no secrets needed | unverified until pushed |
+| P1-08 | Vercel-compat proof: from a fresh clone run `npm ci` at root then build `apps/web` as Vercel would (Root Directory `apps/web`, output `dist`) | P1-05 | builds with workspace import resolved | scripted local check | — | real Vercel build needs approval |
+| P1-09 | `README.md` (short, honest status), `LICENSE` (D1), `SECURITY.md` (private reporting via GitHub advisories) | P1-01 | present, no unverified claims | review | — | — |
+
+### Phase 2 — Responsive UI/UX and radar interface
+| ID | Out | Dep | AC | Test | Sec | DoD/Lim |
+|---|---|---|---|---|---|---|
+| P2-01 | Tailwind v4 via `@tailwindcss/vite`; semantic tokens (bg, ink, gray-50…950) light/dark; theme light/dark/system persisted (try/catch storage); no-flash inline script (hash in CSP) | P1 | toggling theme swaps tokens; system default; `color-scheme` declared | unit (theme logic), Playwright theme check | no third-party CSS | — |
+| P2-02 | Self-hosted Geist + Geist Mono (+ Geist Pixel if licence OK, D11), `font-display: swap`, subset woff2 | P2-01 | no external font requests; fallbacks render | network assertion in Playwright | privacy: no Google Fonts | Source Serif 4 skipped (no long-form) |
+| P2-03 | `ui/` primitives: Button, Chip, Dialog (native `<dialog>` + `showModal`), Sheet, LiveRegion | P2-01 | keyboard, Escape, focus return; 44×44 targets | RTL + axe | text-only rendering | — |
+| P2-04 | App shell: header/status badge (`Connecting/Visible/Invisible/Offline/Reconnecting` as text), VisibilityControl (default **Invisible**), privacy explainer copy; landmarks | P2-03 | status never colour-only; copy says "online lobby", not proximity | RTL | default invisible | wired to fixtures |
+| P2-05 | RadarView (SVG rings + subtle sweep, peers from `Peer[]` prop, decorative placement) + PeerList (same data) ; reduced-motion & hidden-tab pause | P2-04 | radar and list show identical peers; no fake distance/signal | RTL, Playwright reduced-motion | no IP/location fields exist | fixture data only in dev |
+| P2-06 | Playwright + axe setup; viewport matrix (§40: 320×568 … 1440×900 incl. landscape) asserting no horizontal overflow and visible primary controls | P2-05 | all viewports pass; 0 serious/critical axe violations | e2e | — | Chromium first; Firefox/WebKit if they run on Windows |
+| P2-07 | Record initial bundle sizes (gz JS/CSS) in PHASE_STATUS | P2-06 | numbers recorded vs budget 200 KB JS / 40 KB CSS | build output | — | Lighthouse CI comes in P8 |
+
+### Phase 3 — Core WebRTC file transfer (with minimum security gate)
+| ID | Out | Dep | AC | Test | Sec | DoD/Lim |
+|---|---|---|---|---|---|---|
+| P3-01 | **Feasibility spike** (test-only code): fingerprint parsing per browser, MITM relay page, `restartIce()` keeps DTLS, `maxMessageSize`, `generateCertificate()` | P1 | findings (a)–(e) of §6.3 recorded in SECURITY_DECISIONS with evidence; go/no-go on SAS v1 | Playwright multi-page | **gate: if SAS can't be shown sound, stop and escalate** | spike code deleted or moved to e2e |
+| P3-02 | `connection/peer.ts`: pc with STUN from env (D6), single ordered reliable DC, renegotiation guard; **dev-only** BroadcastChannel signaling harness (excluded from prod via `import.meta.env.DEV`) | P3-01 | two same-browser pages open a DC | e2e | harness absent from prod bundle (assert in build test) | — |
+| P3-03 | `connection/sas.ts` (§6.3) + fixed wordlist (D10) | P3-01 | deterministic test vectors; role-order independence; commitment mismatch fails | unit + property tests | no SAS inputs logged | — |
+| P3-04 | Pure **gate state machine** (§6.4/6.5) for peer + transfer states | P3-03 | every illegal transition rejected; terminal states absorbing | exhaustive transition tests | fail-closed by construction | — |
+| P3-05 | `transfer/frames.ts`: binary chunk header (ver, transferId, fileIdx, chunkIdx, offset, len, sha256) + JSON control msgs with strict validators; `docs/PROTOCOL.md` DC section | P3-04 | malformed/oversize/out-of-order frames rejected; payload ≤ maxMessageSize−header | unit + property | validate at trust boundary | — |
+| P3-06 | Sender: `File.slice` reader, backpressure (high/low watermarks configurable), per-chunk digest, cancel; **send() throws unless gate allows** | P3-05 | never more than high-watermark buffered; no whole-file read | unit with fake channel | consent enforced on sender | — |
+| P3-07 | Receiver with **memory sink only** (cap default 256 MiB, configurable), per-chunk verify, cumulative acks, final root check, inert download, filename sanitize | P3-06 | byte-exact output; over-cap rejected before accept | unit + e2e | drops & closes on out-of-state payload | large files → P6 |
+| P3-08 | Minimal UI: SAS phrase + Match/Mismatch, manifest dialog Accept/Reject, progress, cancel (dev harness route) | P3-07, P2-03 | no skip control exists | RTL + e2e | manifest only post-SAS | — |
+| P3-09 | E2E matrix: 0 B, 1 B, chunk boundary, +1, multi-file, random 50 MiB; reject-connection/reject-files/mismatch ⇒ **0 manifest bytes, 0 payload bytes** (counted at channel) | P3-08 | all pass in Chromium (+Firefox if available) | e2e | — | same-browser only until P4 |
+
+### Phase 4 — Online device discovery using Cloudflare
+| ID | Out | Dep | AC | Test | Sec | DoD/Lim |
+|---|---|---|---|---|---|---|
+| P4-01 | Signaling message schemas v1 in `packages/protocol` (C2 split; `offer` carries `cO`, `answer` carries `nA`; **no file-metadata fields exist**) | P3 | all §7 types validated strictly | unit + property (fast-check, dev dep) | manifest privacy by schema | `docs/PROTOCOL.md` updated |
+| P4-02 | Worker: Origin allowlist (env), path/upgrade validation, route → DO (`idFromName`) | P4-01 | bad origin/path/non-upgrade rejected with safe errors | vitest-pool-workers | no payload logging | — |
+| P4-03 | Room DO: `acceptWebSocket`, hello → server `peerId`, attachments, snapshot/joined/left, discoverable toggle, rebuild via `getWebSockets()`, auto-response ping/pong, lease sweep (D2), `new_sqlite_classes` migration, **no storage calls** (lint rule bans `storage.get/put/delete/sql`) | P4-02 | ghost-free after close; rebuild after simulated wake | DO tests | no records persisted | hibernation testing limits noted |
+| P4-04 | connection-request/response, offer/answer/ICE routing restricted to live pending pair; expiry; one-time ids | P4-03 | cross-pair/cross-room routing rejected | DO tests | anti-replay | — |
+| P4-05 | Limits: token bucket, room size cap, pending cap, max bytes, error codes (`RATE_LIMITED`, `SERVER_BUSY`…); per-IP if D7 | P4-04 | floods throttled without affecting others | DO tests | abuse control | quota DoS residual |
+| P4-06 | Private rooms: capability in fragment, route hash, expiry check | P4-03 | wrong/expired capability rejected; never in path/query/logs | unit + DO | capability secrecy | — |
+| P4-07 | Client `presence/`: auto-connect on load, `wss://` enforced in prod build (build fails on `ws://` non-localhost), backoff + jitter, state machine | P4-01 | states truthful; never shows fabricated peers | unit + e2e | no insecure fallback | — |
+| P4-08 | Wire radar/list + request flow to real signaling; replace dev harness path for online mode | P4-07, P3 | two Playwright pages discover each other via `wrangler dev` and transfer byte-exact | e2e | SAS still mandatory | — |
+| P4-09 | Quota/failure UX: "Discovery temporarily unavailable", retry, manual-pairing hint; quota math in docs | P4-08 | simulated 5xx/1027 handled | e2e (mock) | — | — |
+| P4-10 | **Staging Worker deploy to workers.dev — requires explicit approval**; cross-network two-device test | P4-09 + approval | two devices on different networks connect when NAT permits; failures explained | manual | Origin allowlist = local dev + approved test origin only | Free plan only, no billing |
+
+### Phase 5 — Security, peer authentication, and receiver consent
+| ID | Out | Dep | AC | Test | Sec | DoD/Lim |
+|---|---|---|---|---|---|---|
+| P5-01 | MITM harness: signaling proxy substituting fingerprints/nonces/commitments | P4 | phrases differ; 0 manifest/payload bytes | e2e | release-blocking | — |
+| P5-02 | Forged trust flags from server (`verified=true` etc.) ignored; schema rejects them | P5-01 | client state unchanged | unit + e2e | server cannot assert trust | — |
+| P5-03 | No-skip audit: buttons, keyboard, URL params, refresh, restored state, message injection | P5-01 | no path reaches manifest without both confirms | property tests on gate + e2e | — | — |
+| P5-04 | Replay: old offers/answers/nonces/`sas-confirm`/request ids/resume capability | P5-01 | all rejected | DO + e2e | — | — |
+| P5-05 | Consent races: cancel vs accept vs late ack vs reconnect; duplicate/out-of-order control msgs; chunk-before-approval / after-cancel | P5-01 | only legal transitions; both peers stop | unit + e2e | — | — |
+| P5-06 | Signaling abuse suite (§31): floods, cross-room, impersonation, oversize, identity inheritance on reconnect | P4 | limits hold | DO tests | — | — |
+| P5-07 | Privacy/log audit: assert Worker never logs bodies; intercept signaling to prove no filenames/sizes/counts; snapshot fields minimal | P5-06 | assertions pass | tests + grep check | — | — |
+| P5-08 | CSP/headers final in `vercel.json`; header test against `vite preview`; XSS/bidi/control-char filename fixtures; active-file (html/svg/js) inert download | P5-07 | no third-party origins; fixtures inert | e2e | — | — |
+| P5-09 | Privacy UX: IP disclosure before connect, visibility explainer, original-metadata reminder; manual keyboard + screen-reader review of SAS/consent dialogs | P5-08 | checklist signed off in PHASE_STATUS | manual + axe | — | — |
+| P5-10 | Threat model finalized in SECURITY_DECISIONS; CodeQL in CI; request independent review of §6.3 (D-review) | P5-09 | high findings resolved or documented | CI | — | review may be external |
+
+### Phase 6 — Large-file optimization, integrity verification, and resumable transfers
+| ID | Out | Dep | AC | Test | Sec | DoD/Lim |
+|---|---|---|---|---|---|---|
+| P6-01 | Sinks: capability detection; FSA writable (Chromium desktop), OPFS staging + export; `storage.estimate()` advisory; suitability shown **before Accept**; reject when unsuitable | P5 | no 10 GB in-memory Blob path exists | unit + e2e (Chromium) | data stays local | per-browser matrix |
+| P6-02 | Integrity final (D5): digest-list root + post-commit read-back | P6-01 | corrupted sink/byte flip → failed, never "completed" | unit + e2e fault injection | integrity ≠ auth documented | — |
+| P6-03 | `queued/sent/confirmed` offsets separated; checkpoint ack cadence configurable; idempotent duplicates | P6-02 | resume uses confirmed only | unit | — | — |
+| P6-04 | Signaling drop keeps transfer; ICE restart path | P6-03 | no restart from zero | e2e (offline toggles) | same DTLS ⇒ no new SAS | per P3-01 finding |
+| P6-05 | New-connection resume: new SAS (or D4), resume capability, offset reconcile, tail truncate | P6-04 | resume at 1/50/99% byte-exact | e2e | capability never via signaling | page reload = best-effort only |
+| P6-06 | Bounded retries; cancel-during-reconnect terminal; OPFS partial cleanup + abandoned-partial UI | P6-05 | no silent resume after cancel | e2e | — | — |
+| P6-07 | Benchmark harness (chunk 16–256 KiB × watermarks) + opt-in redacted debug panel; pick defaults from data | P6-03 | results file with env metadata | scripted | debug panel redacts names/SDP/ICE/IPs | — |
+| P6-08 | 1 GiB automated (Chromium), 10 GiB manual on selected devices; peak-memory measurement | P6-07 | bounded memory demonstrated; matrix published | perf + manual | — | no universal size claim |
+| P6-09 | Queue UI: speed, rolling avg, ETA when stable, confirmed checkpoint, paused/resuming/awaiting-resume-approval states; throttled renders | P6-05 | no per-chunk React renders; live-region announces state changes only | RTL + e2e | — | — |
+
+### Phase 7 — Offline QR/manual pairing and offline website caching
+| ID | Out | Dep | AC | Test | Sec | DoD/Lim |
+|---|---|---|---|---|---|---|
+| P7-01 | `manifest.webmanifest`, icons | P2 | installable metadata valid | Lighthouse PWA check | — | — |
+| P7-02 | Hand-written SW + tiny Vite precache plugin; versioned cache; update prompt; caches **app shell only** | P7-01 | offline reload works after first visit; no non-shell entries | e2e (`context.setOffline`) + cache-content assertion | never caches files/manifests/SDP | browser may evict |
+| P7-03 | Manual pairing: offer/answer with full ICE gathering + timeout; compact encoding (strip to needed SDP fields or CompressionStream + base64url); SAS mandatory | P5 | two offline pages pair & transfer | e2e offline | same gate | network-dependent |
+| P7-04 | QR show (lazy) + scan (`BarcodeDetector` where present, lazy fallback lib); multi-part only if measured sizes require | P7-03 | scan round-trip on 2 real devices | manual | camera permission scoped | not all devices |
+| P7-05 | Offline UX: "Offline — radar unavailable" → "Try local pairing"; failure explanations (mDNS, AP isolation, VPN) | P7-03 | no implied scanning | RTL | — | — |
+| P7-06 | Real-device LAN matrix documented in `docs/OFFLINE-MODE.md` | P7-05 | supported/unsupported combos listed | manual | — | best-effort only |
+
+### Phase 8 — Comprehensive testing, performance optimization, and release readiness
+| ID | Out | Dep | AC | Test | Sec | DoD/Lim |
+|---|---|---|---|---|---|---|
+| P8-01 | Cross-browser/device matrix (Chrome, Edge, Firefox, Safari macOS/iOS, Android Chrome) for core flows | P7 | results table | manual + e2e | — | depends on A3 |
+| P8-02 | Network matrix (same Wi-Fi, hotspot, separate networks, VPN, restrictive) | P8-01 | documented outcomes | manual | — | no TURN ⇒ some fail |
+| P8-03 | Lighthouse CI workflow on preview build (floors: Perf ≥ 90, A11y/BP/SEO ≥ 95) | P1-07 | gate enforced on PRs | CI | — | — |
+| P8-04 | PageSpeed workflow (`pagespeed.yml` + scripts) — **needs user's API key secret + approved public URL** | prod deploy | mobile+desktop reports as artifacts | CI | key only in Actions secret | — |
+| P8-05 | Optimization pass from measurements (lazy chunks, budgets) | P8-03 | ≤ 200 KB JS gz / ≤ 40 KB CSS gz initial (targets) | build report | — | — |
+| P8-06 | Docs: README, PRIVACY, PROTOCOL, ARCHITECTURE, OFFLINE-MODE, SELF-HOSTING, PERFORMANCE, known limitations; release hashes procedure | P8-05 | no unverified claims | review | honest metadata disclosure | — |
+| P8-07 | Release checklist (§14, §38.8, §46) → **production deploy (approval)** → TLS/headers verification on real hosts → tag (D13) | all | every release-blocking item passes | full suite | — | free plans only |
+
+---
+
+
+## Phase 1 exact acceptance criteria and first task
+
+**Phase 1 exits when all of these hold (evidence in PHASE_STATUS):**
+1. Git repo initialized; working tree clean; spec + skill + docs + CLAUDE.md committed.
+2. Fresh clone → `npm ci` → `npm run check` passes on Windows (lint, typecheck, unit tests across `apps/web`, `apps/signaling`, `packages/protocol`).
+3. `npm run build` produces `apps/web/dist`, and the Worker bundles (`wrangler deploy --dry-run`, no upload).
+4. `npm run dev -w apps/web` serves the placeholder page. `wrangler dev` answers `GET /healthz` with 200.
+5. `packages/protocol` is imported and used by both apps, and both builds succeed (Vercel-style build from Root Directory `apps/web` reproduced locally).
+6. Runtime deps limited to `react`, `react-dom`. All dev deps pinned by the lockfile. `npm audit --audit-level=high` reports 0.
+7. ESLint bans `dangerouslySetInnerHTML` and cross-app imports (demonstrated by a failing planted case, then removed).
+8. CI workflow committed (green run pending repo-push approval, recorded as unverified until then).
+9. README, LICENSE (per D1), SECURITY.md present. No deployment performed.
+
+**First implementation task: P1-01.** Run `git init`. Add `.gitignore` (node_modules, dist, .wrangler, .env*, .dev.vars, playwright-report, test-results), `.editorconfig`, `.nvmrc` (`22`), and a root `package.json` (`"private": true`, `"workspaces": ["apps/*", "packages/*"]`, `"engines": {"node": ">=22"}`). Make the first commit containing the existing spec and skill. Verify with `git status` (clean) and `git check-ignore -v node_modules .dev.vars`. No remote.
+
+---
+
+
+## Change control
+
+- Phases, task IDs and acceptance criteria change only with the owner's approval. Record every change here with a date and a one-line reason.
+- A task belongs to exactly one phase. Work from a later phase is never started early without approval, even when it looks small.
+
+| Date | Change | Approved by |
+|---|---|---|
+| 2026-10-16 | Initial roadmap created from the approved planning session | Project owner |
