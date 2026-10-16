@@ -1,0 +1,12 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "zipply-signaling",
+  "main": "src/index.ts",
+  // Latest date supported by the pinned workerd (1.20261012.1). Bump deliberately.
+  "compatibility_date": "2026-10-12",
+  "workers_dev": true,
+  "preview_urls": false,
+  // Privacy: no Wrangler usage metrics, no Workers observability/log persistence by default.
+  "send_metrics": false,
+  "observability": { "enabled": false },
+}

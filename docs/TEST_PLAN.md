@@ -6,16 +6,16 @@ A passing suite is a regression baseline for the defined threat model. It does n
 
 ## 1. Layers and tools
 
-| Layer | Tool | Scope | Introduced |
-|---|---|---|---|
-| Web unit/component | Vitest + React Testing Library + jsdom | UI logic, state machines, rendering of untrusted strings as text | P1 |
-| Worker / Durable Object | Vitest + `@cloudflare/vitest-pool-workers` (runs in workerd) | routing, origin checks, presence, limits, hibernation rebuild | P1 (health route), P4 |
-| Protocol | Vitest (+ fast-check property tests from P4-01) | envelope and message validators, frames, gate state machine | P1, P3, P4 |
-| Lint as a security control | ESLint | bans raw-HTML sinks, `eval`, cross-runtime imports | P1 |
-| Browser end-to-end | Playwright + axe-core | viewport matrix, accessibility, two-page WebRTC transfers, MITM harness, offline | P2+ |
-| Website performance | Lighthouse CI (preview build), PageSpeed Insights API (deployed URL) | load performance, a11y, best practices, SEO | P8 |
-| Transfer performance | dedicated benchmark harness | throughput, memory, resume time | P6 |
-| Manual | real devices and networks | Safari/iOS/Android, Wi-Fi/hotspot/VPN/separate networks, screen readers | P5–P8 |
+| Layer                      | Tool                                                                 | Scope                                                                            | Introduced            |
+| -------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------- |
+| Web unit/component         | Vitest + React Testing Library + jsdom                               | UI logic, state machines, rendering of untrusted strings as text                 | P1                    |
+| Worker / Durable Object    | Vitest + `@cloudflare/vitest-pool-workers` (runs in workerd)         | routing, origin checks, presence, limits, hibernation rebuild                    | P1 (health route), P4 |
+| Protocol                   | Vitest (+ fast-check property tests from P4-01)                      | envelope and message validators, frames, gate state machine                      | P1, P3, P4            |
+| Lint as a security control | ESLint                                                               | bans raw-HTML sinks, `eval`, cross-runtime imports                               | P1                    |
+| Browser end-to-end         | Playwright + axe-core                                                | viewport matrix, accessibility, two-page WebRTC transfers, MITM harness, offline | P2+                   |
+| Website performance        | Lighthouse CI (preview build), PageSpeed Insights API (deployed URL) | load performance, a11y, best practices, SEO                                      | P8                    |
+| Transfer performance       | dedicated benchmark harness                                          | throughput, memory, resume time                                                  | P6                    |
+| Manual                     | real devices and networks                                            | Safari/iOS/Android, Wi-Fi/hotspot/VPN/separate networks, screen readers          | P5–P8                 |
 
 Root commands: `npm run check` (lint + typecheck + unit tests + format check), `npm run build`. Playwright (`npm run e2e`) is added in P2.
 

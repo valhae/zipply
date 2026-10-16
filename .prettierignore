@@ -1,0 +1,7 @@
+# Canonical spec and design skill are maintained by the owner; never reformat them.
+Zipply_Project_Plan.md
+.claude/
+package-lock.json
+**/dist/
+**/.wrangler/
+coverage/

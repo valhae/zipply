@@ -45,6 +45,7 @@ The threat model table in `Zipply_Project_Plan.md` §38.1 and the release-blocki
   - the state is not terminal.
 
   File bytes may be sent or accepted only if, in addition, the receiver sent `files-accept{transferId, manifestDigest}` matching the current manifest. The sender's `send()` throws outside an allowed state. The receiver drops any out-of-state frame, counts a violation, and closes the connection after one payload-frame violation.
+
 - **Consequences:** Consent and verification are protocol properties, not just hidden buttons.
 
 ## SD-04 — Consent model and advisory signaling cancel
@@ -121,6 +122,6 @@ The threat model table in `Zipply_Project_Plan.md` §38.1 and the release-blocki
 
 ## Change log
 
-| Date | Change |
-|---|---|
+| Date       | Change                                                                          |
+| ---------- | ------------------------------------------------------------------------------- |
 | 2026-10-16 | Initial decisions recorded from the approved planning session (Phase 1, P1-02). |
