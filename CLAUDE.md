@@ -22,10 +22,11 @@ Roadmap: `docs/IMPLEMENTATION_ROADMAP.md`. Current phase + evidence: `docs/PHASE
 
 Creating/pushing a GitHub remote, any deploy (Cloudflare, Vercel, preview or prod), adding paid services or changing billing, adding a runtime dependency, changing protocol semantics or security decisions, editing `Zipply_Project_Plan.md`.
 Git: the owner (valhae) commits, pushes and merges manually. Leave changes uncommitted unless explicitly asked to commit; never push.
+Env files: `apps/web/.env` and `apps/signaling/.dev.vars` are owner-managed and gitignored; do not read or edit them (one-time setup done 2026-10-17). Update only the committed `*.example` templates, and never put secrets in `VITE_*` variables.
 
 ## Commands (root)
 
-`npm ci` · `npm run check` (lint + typecheck + unit tests + format check) · `npm run build` · `npm run format` · `npm run dev -w apps/web` · `npm run dev -w apps/signaling`
+`npm ci` · `npm run check` (lint + typecheck + unit tests + format check) · `npm run build` · `npm run e2e` (Playwright, 3 engines) · `npm run format` · `npm run dev -w apps/web` · `npm run dev -w apps/signaling`
 
 ## Structure
 

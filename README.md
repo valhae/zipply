@@ -18,6 +18,7 @@ Requires Node.js 24 LTS (≥ 24.15, see `.nvmrc`) and npm 11.
 npm ci                          # install from the lockfile
 npm run check                   # lint, typecheck, unit tests, format check
 npm run build                   # web build + Worker dry-run bundle (no upload)
+npm run e2e                     # browser tests (first: npx playwright install chromium firefox webkit)
 npm run dev -w @zipply/web      # website at http://localhost:5173
 npm run dev -w @zipply/signaling  # Worker at http://localhost:8787/healthz
 ```

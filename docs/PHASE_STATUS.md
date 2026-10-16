@@ -1,15 +1,76 @@
 # Phase status
 
-| #   | Phase                                                                    | Status                                       | Approved by user   | Exit evidence                                  |
-| --- | ------------------------------------------------------------------------ | -------------------------------------------- | ------------------ | ---------------------------------------------- |
-| 1   | Project foundation and development tooling                               | COMPLETE — READY FOR REVIEW (owner approval) | 2026-10-16 (start) | Phase 1 evidence below; final commit `479dd63` |
-| 2   | Responsive UI/UX and radar interface                                     | NOT STARTED — needs owner approval           | —                  | —                                              |
-| 3   | Core WebRTC file transfer                                                | NOT STARTED                                  | —                  | —                                              |
-| 4   | Online device discovery using Cloudflare                                 | NOT STARTED                                  | —                  | —                                              |
-| 5   | Security, peer authentication, and receiver consent                      | NOT STARTED                                  | —                  | —                                              |
-| 6   | Large-file optimization, integrity verification, and resumable transfers | NOT STARTED                                  | —                  | —                                              |
-| 7   | Offline QR/manual pairing and offline website caching                    | NOT STARTED                                  | —                  | —                                              |
-| 8   | Comprehensive testing, performance optimization, and release readiness   | NOT STARTED                                  | —                  | —                                              |
+| #   | Phase                                                                    | Status                                       | Approved by user   | Exit evidence                                                  |
+| --- | ------------------------------------------------------------------------ | -------------------------------------------- | ------------------ | -------------------------------------------------------------- |
+| 1   | Project foundation and development tooling                               | COMPLETE                                     | 2026-10-16         | Phase 1 evidence below; CI green on GitHub (run for `5f2ce91`) |
+| 2   | Responsive UI/UX and radar interface                                     | COMPLETE — READY FOR REVIEW (owner approval) | 2026-10-16 (start) | Phase 2 evidence below (uncommitted, branch `phase-2-ui`)      |
+| 3   | Core WebRTC file transfer                                                | NOT STARTED                                  | —                  | —                                                              |
+| 4   | Online device discovery using Cloudflare                                 | NOT STARTED                                  | —                  | —                                                              |
+| 5   | Security, peer authentication, and receiver consent                      | NOT STARTED                                  | —                  | —                                                              |
+| 6   | Large-file optimization, integrity verification, and resumable transfers | NOT STARTED                                  | —                  | —                                                              |
+| 7   | Offline QR/manual pairing and offline website caching                    | NOT STARTED                                  | —                  | —                                                              |
+| 8   | Comprehensive testing, performance optimization, and release readiness   | NOT STARTED                                  | —                  | —                                                              |
+
+## Phase 2 task log
+
+Environment: Windows 11, Node v24.22.0, npm 11.15.0, Playwright 1.64.1 (Chromium, Firefox, WebKit builds bundled with it). Date: 2026-10-16. Branch `phase-2-ui`; changes left uncommitted for the owner.
+
+| Task  | Status | Notes/limits                                                                                                                                                                           |
+| ----- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P2-01 | DONE   | Tailwind v4 with default palette removed (`--color-*: initial`); light/dark/system theme persisted with storage-failure fallback; inline no-flash script (needs a CSP hash in P5-08)   |
+| P2-02 | DONE   | Geist, Geist Mono, Geist Pixel Square self-hosted from `geist@1.8.1` (OFL, no reserved names), subset to Latin with fontTools 4.65.0: 168 KB → 85 KB; `OFL.txt` alongside              |
+| P2-03 | DONE   | Button, Chip, Dialog (native `<dialog>`, bottom sheet below 640px — the "Sheet" primitive is this Dialog presentation), LiveRegion                                                     |
+| P2-04 | DONE   | Header status badge (text, never colour-only), Discoverable switch default off, visibility explainer dialog, landmarks                                                                 |
+| P2-05 | DONE   | SVG radar (decorative, `aria-hidden`, deterministic placement, 24-marker cap) mirrors the accessible PeerList; sweep only while connecting/online; reduced motion and hidden-tab pause |
+| P2-06 | DONE   | Playwright + axe; 10-viewport matrix; CI job `e2e` added (not yet run on GitHub)                                                                                                       |
+| P2-07 | DONE   | Bundle sizes recorded below                                                                                                                                                            |
+
+### Phase 2 evidence (exact commands → actual results)
+
+- TDD (RED observed before GREEN for each):
+  - `theme.test.ts`: 10 failed against a stub → 15 passed.
+  - `layout.test.ts`: tightened after 3 vacuous passes → 5 failed → 5 passed.
+  - `status.test.ts`: 4 failed → 5 passed.
+  - `App.test.tsx`: 2 failed → passed.
+  - Sweep-while-offline test failed with the guard removed, then passed with it restored.
+- `npm run check` → exit 0:
+  - lint;
+  - typecheck for protocol, signaling, web and `e2e`;
+  - tests: protocol 31, signaling 9, web 32;
+  - format clean; 0 warning lines.
+- `npx playwright test` (Chromium, Firefox, WebKit) → **110 passed, 1 skipped**. The skip is the orientation-change test on Firefox only (see R9).
+- Bugs found by the e2e suite and fixed:
+  - Horizontal overflow of 8 px at widths ≤ 390 px, caused by the halftone layer (`-inset-6`). It is now contained on small screens.
+  - WebKit focus-return failure: Safari does not focus buttons on mouse click. The test now uses keyboard activation, the case focus return exists for.
+- axe wiring proven non-vacuous: injecting gray-400 text reports `serious color-contrast`.
+- `npm run build` → JS 231.32 kB (**72.58 kB gzip**), CSS 20.36 kB (**5.20 kB gzip**), fonts 19.42 + 32.35 + 33.60 kB woff2. Budgets 200 kB / 40 kB gzip.
+- Production build: demo fixtures absent (grep → 0 files), so the prod e2e shows "Offline" and 0 markers even with `?demo=few&connection=online`. No third-party requests (e2e). The only URL in the output is Tailwind's licence comment.
+- `npm audit --audit-level=high` → 0. `gitleaks dir apps/web/src e2e` → no leaks.
+
+### Design revision (2026-10-17, owner feedback before commit)
+
+- Changes:
+  - Theme switch now uses icons (sun/moon/monitor) with spacing.
+  - Status badge is a pill.
+  - Shared `SectionHeader` row, so both columns align.
+  - One 56rem content width for header, hero, grid and footer.
+  - Redesigned switch and visibility card.
+  - Halftone moved to a single faded corner accent on the radar card.
+  - People list aligned flush with its header.
+- Radar alignment fixes:
+  - Rings evenly spaced at radii 0.25 / 0.5 / 0.75 / 1.
+  - Markers sit exactly on the 0.5 and 0.75 rings, at 15° slots (outer ring offset 7.5°), with collisions moved to the next free slot.
+  - Hairlines are 1 px at any size (`non-scaling-stroke`).
+  - The sweep is now an HTML conic-gradient layer the exact size of the outer ring. The old SVG `transform-origin` rotated off-centre.
+- TDD: new layout tests failed first:
+  - on-ring test failed with the old radii;
+  - overlap test failed for 3 of 4 id families;
+  - 7.5° slot test failed.
+
+  All passed after the change (layout 11/11).
+
+- `npm run check` → exit 0 (protocol 31, signaling 9, web 38). `npx playwright test` → 110 passed, 1 skipped (Firefox orientation, R9).
+- Build: JS 73.15 kB gzip, CSS 5.63 kB gzip. Demo fixtures absent from production. `npm audit` → 0.
 
 ## Phase 1 task log
 
@@ -117,38 +178,40 @@ Environment for Phase 1 evidence unless stated: Windows 11 Home 10.0.26300, Node
 
 ## Decisions log
 
-| ID  | Decision                                                                              | Date       | Status                                                               |
-| --- | ------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------- |
-| —   | Initial roadmap and Phase 1 scope approved                                            | 2026-10-16 | APPROVED by owner                                                    |
-| D1  | License: MIT; copyright holder `valhae` (owner name updated 2026-10-16)               | 2026-10-16 | APPROVED by owner                                                    |
-| —   | Local git commits on a phase branch are allowed; no remote, no push                   | 2026-10-16 | APPROVED by owner                                                    |
-| D2  | `ctx.storage.setAlarm()` used only as a timer for lease sweep                         | —          | PROPOSED (needed by P4-03)                                           |
-| D3  | SAS v1 commit-then-reveal, six words                                                  | —          | PROPOSED (needed by P3-03)                                           |
-| D4  | New DTLS association → fresh SAS; `restartIce()` first                                | —          | PROPOSED (needed by P6-05)                                           |
-| D5  | Integrity: per-chunk SHA-256 + digest-list root + read-back, no new dependency        | —          | PROPOSED (needed by P3-05/P6-02)                                     |
-| D6  | STUN: `stun.cloudflare.com:3478` (free status unverified) vs Google                   | —          | PROPOSED (needed by P3-02)                                           |
-| D7  | Per-IP rate limiting via Workers Rate Limiting binding only if confirmed on Free plan | —          | PROPOSED (needed by P4-05)                                           |
-| D8  | Shared `packages/protocol` workspace consumed as TS source                            | 2026-10-16 | APPLIED in Phase 1 as part of the approved roadmap (P1-05)           |
-| D9  | Hand-written strict validators (no runtime dependency)                                | 2026-10-16 | APPLIED PROVISIONALLY in P1-05 (envelope only); confirm before P4-01 |
-| D10 | SAS wordlist: BIP-39 English (license to confirm)                                     | —          | PROPOSED (needed by P3-03)                                           |
-| D11 | Fonts: self-host Geist + Geist Mono; Geist Pixel only if licensed; no Source Serif 4  | —          | PROPOSED (needed by P2-02)                                           |
-| D12 | Heartbeat 20 s / TTL 60 s via auto-response ping                                      | —          | PROPOSED (needed by P4-03)                                           |
-| D13 | First public tag `v0.1.0`                                                             | —          | PROPOSED (needed by P8-07)                                           |
-| D14 | External actions approved individually (GitHub repo, staging Worker, Vercel, PSI key) | —          | STANDING RULE; none approved yet                                     |
-| D15 | Cross-phase parallelism                                                               | —          | Default: strict sequence                                             |
-| D16 | Available test devices                                                                | —          | OPEN — owner to list                                                 |
-| D17 | `Zipply_Project_Plan.md` unchanged; conflicts resolved in docs                        | 2026-10-16 | APPLIED (spec untouched, verified by `git diff 903414e HEAD`)        |
-| D18 | Independent review of SAS design before public release                                | —          | PROPOSED                                                             |
+| ID  | Decision                                                                                    | Date       | Status                                                               |
+| --- | ------------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------- |
+| —   | Initial roadmap and Phase 1 scope approved                                                  | 2026-10-16 | APPROVED by owner                                                    |
+| D1  | License: MIT; copyright holder `valhae` (owner name updated 2026-10-16)                     | 2026-10-16 | APPROVED by owner                                                    |
+| —   | Local git commits on a phase branch are allowed; no remote, no push                         | 2026-10-16 | APPROVED by owner                                                    |
+| D2  | `ctx.storage.setAlarm()` used only as a timer for lease sweep                               | —          | PROPOSED (needed by P4-03)                                           |
+| D3  | SAS v1 commit-then-reveal, six words                                                        | —          | PROPOSED (needed by P3-03)                                           |
+| D4  | New DTLS association → fresh SAS; `restartIce()` first                                      | —          | PROPOSED (needed by P6-05)                                           |
+| D5  | Integrity: per-chunk SHA-256 + digest-list root + read-back, no new dependency              | —          | PROPOSED (needed by P3-05/P6-02)                                     |
+| D6  | STUN: `stun.cloudflare.com:3478` (free status unverified) vs Google                         | —          | PROPOSED (needed by P3-02)                                           |
+| D7  | Per-IP rate limiting via Workers Rate Limiting binding only if confirmed on Free plan       | —          | PROPOSED (needed by P4-05)                                           |
+| D8  | Shared `packages/protocol` workspace consumed as TS source                                  | 2026-10-16 | APPLIED in Phase 1 as part of the approved roadmap (P1-05)           |
+| D9  | Hand-written strict validators (no runtime dependency)                                      | 2026-10-16 | APPLIED PROVISIONALLY in P1-05 (envelope only); confirm before P4-01 |
+| D10 | SAS wordlist: BIP-39 English (license to confirm)                                           | —          | PROPOSED (needed by P3-03)                                           |
+| D11 | Fonts: self-host Geist + Geist Mono + Geist Pixel Square (OFL confirmed); no Source Serif 4 | 2026-10-16 | APPROVED by owner; applied in P2-02                                  |
+| D12 | Heartbeat 20 s / TTL 60 s via auto-response ping                                            | —          | PROPOSED (needed by P4-03)                                           |
+| D13 | First public tag `v0.1.0`                                                                   | —          | PROPOSED (needed by P8-07)                                           |
+| D14 | External actions approved individually (GitHub repo, staging Worker, Vercel, PSI key)       | —          | STANDING RULE; none approved yet                                     |
+| D15 | Cross-phase parallelism                                                                     | —          | Default: strict sequence                                             |
+| D16 | Available test devices                                                                      | —          | OPEN — owner to list                                                 |
+| D17 | `Zipply_Project_Plan.md` unchanged; conflicts resolved in docs                              | 2026-10-16 | APPLIED (spec untouched, verified by `git diff 903414e HEAD`)        |
+| D18 | Independent review of SAS design before public release                                      | —          | PROPOSED                                                             |
 
 ## Open risks
 
-| ID  | Risk                                                                 | Mitigation / status                                                                          |
-| --- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| R1  | SAS fingerprint extraction differs across browsers                   | P3-01 spike, release-blocking                                                                |
-| R2  | Free-quota exhaustion or abuse DoS                                   | auto-response heartbeats, limits, honest "temporarily unavailable" state                     |
-| R3  | 10 GB receive infeasible on some browsers                            | capability detection, reject before transfer, published matrix (P6)                          |
-| R4  | Users confirm SAS without comparing                                  | copy/UX friction; residual                                                                   |
-| R5  | Supply-chain or served-JS compromise                                 | minimal deps, lockfile, audit, SHA-pinned actions, CSP, release hashes; residual             |
-| R6  | Scope creep from spec §43/§45                                        | post-MVP by roadmap                                                                          |
-| R7  | (Resolved 2026-10-16) Local Node was older than current tools needed | Local Node upgraded to v24.22.0 LTS; `.nvmrc` = 24; jsdom 30                                 |
-| R8  | gitleaks job failed on the first push (action bug with root commit)  | replaced the action with the pinned binary scanning full history; confirm green on next push |
+| ID  | Risk                                                                                                                            | Mitigation / status                                                                                                    |
+| --- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| R1  | SAS fingerprint extraction differs across browsers                                                                              | P3-01 spike, release-blocking                                                                                          |
+| R2  | Free-quota exhaustion or abuse DoS                                                                                              | auto-response heartbeats, limits, honest "temporarily unavailable" state                                               |
+| R3  | 10 GB receive infeasible on some browsers                                                                                       | capability detection, reject before transfer, published matrix (P6)                                                    |
+| R4  | Users confirm SAS without comparing                                                                                             | copy/UX friction; residual                                                                                             |
+| R5  | Supply-chain or served-JS compromise                                                                                            | minimal deps, lockfile, audit, SHA-pinned actions, CSP, release hashes; residual                                       |
+| R6  | Scope creep from spec §43/§45                                                                                                   | post-MVP by roadmap                                                                                                    |
+| R7  | (Resolved 2026-10-16) Local Node was older than current tools needed                                                            | Local Node upgraded to v24.22.0 LTS; `.nvmrc` = 24; jsdom 30                                                           |
+| R8  | gitleaks job failed on the first push (action bug with root commit)                                                             | replaced the action with the pinned binary scanning full history; confirm green on next push                           |
+| R9  | Headless Firefox (Playwright 1.64.1, Windows) crashes when resized below 1280px (`Target crashed`, reproduced on `about:blank`) | viewport set at context creation instead; mid-test resize (orientation) covered by Chromium/WebKit, skipped on Firefox |
+| R10 | Skill gray-400 (`#a3a3a3`) fails WCAG AA as text in light theme (2.5:1)                                                         | readable meta text uses gray-500 (4.74:1); gray-400 decorative only                                                    |
