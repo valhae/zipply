@@ -17,7 +17,7 @@ A passing suite is a regression baseline for the defined threat model. It does n
 | Transfer performance       | dedicated benchmark harness                                          | throughput, memory, resume time                                                  | P6                    |
 | Manual                     | real devices and networks                                            | Safari/iOS/Android, Wi-Fi/hotspot/VPN/separate networks, screen readers          | P5–P8                 |
 
-Root commands: `npm run check` (lint + typecheck + unit tests + format check), `npm run build`, `npm run e2e` (Playwright: starts the Vite dev server for `?demo=` fixture tests and a production preview on port 4173; first run needs `npx playwright install chromium firefox webkit`).
+Root commands: `npm run check` (lint + typecheck + unit tests + format check), `npm run build`, `npm run e2e` (Playwright: starts the Vite dev server for `?demo=` fixture tests and a production preview on port 4173; first run needs `npx playwright install chromium firefox webkit`). The CPU-heavy WebRTC specs (`e2e/transfer.spec.ts`, `e2e/webrtc-spike.spec.ts`) run as separate `<engine>-webrtc` projects after the UI projects; they use the dev-only `?harness` page and skip where the browser build has no `RTCPeerConnection` (Playwright WebKit on Windows).
 
 ## 2. Phase-by-phase inventory
 

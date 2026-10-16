@@ -17,7 +17,7 @@ The threat model table in `Zipply_Project_Plan.md` §38.1 and the release-blocki
 
 ## SD-02 — Short authentication string (SAS) v1 with commit-then-reveal
 
-- **Status:** Proposed — pending P3-01 feasibility spike, owner confirmation (D3, D10) and independent review before public release (D18).
+- **Status:** Accepted for Chromium and Firefox (owner chose the recommended options D3 and D10 on 2026-10-17; P3-01 findings below). Safari/WebKit unverified. Independent review before public release is still required (D18).
 - **Context:** The spec (§38.3) derives a six-word phrase from both DTLS SHA-256 fingerprints and fresh nonces, but it does not commit to the nonces. If nonces travel unprotected through signaling, an intermediary can choose its own values after seeing the honest ones.
 - **Decision (protocol):** Roles: **O** = offerer/requester, **A** = answerer.
   1. O generates a 16-byte nonce `nO` (via `crypto.getRandomValues`) and a 16-byte `connId`. It computes `cO = SHA-256("zipply/sas-commit/v1" ‖ connId ‖ nO)` and sends `offer{connId, sdp, cO}` via signaling.
@@ -32,6 +32,14 @@ The threat model table in `Zipply_Project_Plan.md` §38.1 and the release-blocki
 - **Binding to the live session:** the browser itself enforces that the DTLS peer certificate matches the fingerprint in the remote description. The DataChannel only exists over that DTLS association, so `D` describes exactly the keys protecting the file bytes.
 - **Consequences:** Users must compare six words for every new connection. This is a human-factor risk (planning risk R4): users may click "match" without comparing. Copy and UI friction reduce this risk but cannot eliminate it.
 - **Evidence required (release-blocking, P3-01):** (a) sha-256 fingerprint lines parse identically in Chromium, Firefox and Safari for local and remote descriptions. (b) A MITM page relaying between two pages with substituted fingerprints yields different phrases. (c) The unchanged path yields identical phrases. (d) `restartIce()` keeps the same fingerprints and DataChannel. (e) `maxMessageSize` is recorded per browser. If (a) fails on a browser, that browser is unsupported for transfers until resolved.
+- **Evidence (P3-01, 2026-10-17, Windows 11, Playwright 1.64.1, `e2e/webrtc-spike.spec.ts`, real `sas.ts` in the page):**
+  - (a) PASS on Chromium 156.0.8078.4 and Firefox 157.0. Each side's local fingerprint parses to the same value as the other side's remote fingerprint, and it equals the `sha-256` fingerprint of a certificate from `RTCPeerConnection.generateCertificate()`. Both browsers emit one `a=fingerprint:sha-256` line.
+  - (b) PASS on both. A page-level relay (Alice ↔ M1, M2 ↔ Bob, forwarding data and even the honest nonces) produced different phrases on the two ends. Separately, replacing the fingerprint in the answer SDP with another certificate's, without terminating DTLS, left `connectionState` at `failed` and the channel never opened. The browser enforces the fingerprint, which is what binds D to the live session.
+  - (c) PASS on both. The unchanged path gives identical digests and phrases.
+  - (d) PASS on both. After `restartIce()` and a new offer/answer, the ICE ufrag changed, the fingerprints did not, and the existing DataChannel still delivered a message. Phase 3 still refuses any second description; P6-04 will add the restart path.
+  - (e) `pc.sctp.maxMessageSize` = 262,144 (Chromium) and 1,073,741,823 (Firefox); a 65,606-byte frame (64 KiB payload + 70-byte header) arrived intact on both.
+  - Safari/WebKit: **NOT VERIFIED.** Playwright's WebKit build on Windows has no `RTCPeerConnection`, so the 6 spike tests are skipped there. A real Safari (macOS/iOS) check is required before Safari can be called supported (P8-01).
+  - **Go/no-go:** GO for SAS v1 on Chromium and Firefox. Unit evidence: pinned digest test vector, transcript cross-check against an independent construction, role-order and single-bit-change properties (200 random runs each), and commitment mismatch failing closed (`sas.test.ts`, `session.test.ts`).
 
 ## SD-03 — Gate preconditions before a manifest or file bytes
 
@@ -47,6 +55,7 @@ The threat model table in `Zipply_Project_Plan.md` §38.1 and the release-blocki
   File bytes may be sent or accepted only if, in addition, the receiver sent `files-accept{transferId, manifestDigest}` matching the current manifest. The sender's `send()` throws outside an allowed state. The receiver drops any out-of-state frame, counts a violation, and closes the connection after one payload-frame violation.
 
 - **Consequences:** Consent and verification are protocol properties, not just hidden buttons.
+- **Evidence (P3-04/P3-09):** `gate.test.ts` checks every state × event pair (140 transitions): illegal events fail closed and terminal states absorb everything. `session.test.ts` and `e2e/transfer.spec.ts` count bytes at `RTCDataChannel.send`: rejecting the connection, a mismatch, and rejecting the files all leave payload bytes at 0, and the first two also leave manifest bytes at 0. A payload frame before acceptance closes the connection, and forged messages such as `{"t":"verified"}` fail it.
 
 ## SD-04 — Consent model and advisory signaling cancel
 
@@ -67,9 +76,10 @@ The threat model table in `Zipply_Project_Plan.md` §38.1 and the release-blocki
 
 ## SD-06 — Integrity scheme (integrity ≠ authentication)
 
-- **Status:** Proposed (D5).
+- **Status:** Accepted (owner chose the recommended option D5 on 2026-10-17). Per-chunk and root checks are implemented in P3; post-commit read-back comes with the disk sinks in P6-02.
 - **Context:** `crypto.subtle.digest` is one-shot, not incremental, so Web Crypto alone cannot hash a 10 GB file in bounded memory.
 - **Decision:** Each chunk is hashed with SHA-256 by the sender and verified by the receiver before it is written. A final root equals `SHA-256` of the concatenated chunk digests. After the sink is committed, the receiver re-reads the stored file to verify it. No new dependency is needed.
+- **Evidence (P3):** `receiver.test.ts` shows that a flipped payload byte, a wrong root, a skipped, duplicate or out-of-order chunk, and bytes beyond the declared size each fail and never yield a download. `e2e/transfer.spec.ts` compares the SHA-256 of every downloaded file with its source (0 B to 50 MiB) in Chromium and Firefox.
 - **Consequences:** These checks detect corruption, bugs and splice errors. They do **not** authenticate the sender: authenticity comes from the SAS-verified channel the hashes travel on. A verified peer can still send malicious content, so received files are always inert downloads (`application/octet-stream`, sanitized filename, never rendered inline). There is no single whole-file SHA-256 comparable to `sha256sum` unless D5 changes.
 
 ## SD-07 — Reconnect and resume authorization
@@ -116,13 +126,14 @@ The threat model table in `Zipply_Project_Plan.md` §38.1 and the release-blocki
 
 ## SD-11 — STUN provider
 
-- **Status:** Proposed (D6).
-- **Decision:** Prefer `stun:stun.cloudflare.com:3478`, keeping infrastructure providers to those already in use. Its free status is **unverified**; Google STUN is the alternative. The configured value comes from build-time environment, not hard-coded. The privacy disclosure names the STUN operator.
+- **Status:** Accepted (owner chose the recommended option D6 on 2026-10-17).
+- **Decision:** Use `stun:stun.cloudflare.com:3478`, keeping infrastructure providers to those already in use. Cloudflare's Realtime TURN FAQ states: "Cloudflare's STUN service at `stun.cloudflare.com` is free and unlimited" (developers.cloudflare.com/realtime/turn/faq/, read 2026-10-17). The value comes from the build-time variable `VITE_STUN_URLS` (`stun:`/`stuns:` only, TURN ignored), never hard-coded. If it is unset, no STUN server is used. The privacy disclosure (P5-09) names the STUN operator, which sees the client's IP address.
 
 ---
 
 ## Change log
 
-| Date       | Change                                                                          |
-| ---------- | ------------------------------------------------------------------------------- |
-| 2026-10-16 | Initial decisions recorded from the approved planning session (Phase 1, P1-02). |
+| Date       | Change                                                                                                                                                   |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-10-16 | Initial decisions recorded from the approved planning session (Phase 1, P1-02).                                                                          |
+| 2026-10-17 | Phase 3: SD-02 accepted for Chromium/Firefox with P3-01 evidence (Safari unverified); SD-03 and SD-06 evidence added; SD-06 and SD-11 accepted (D5, D6). |

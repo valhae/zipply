@@ -1,6 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const CI = !!process.env.CI;
+const WEBRTC = /(transfer|webrtc-spike)\.spec\.ts$/;
+const ENGINES = [
+  ['chromium', 'Desktop Chrome'],
+  ['firefox', 'Desktop Firefox'],
+  ['webkit', 'Desktop Safari'],
+] as const;
 
 export default defineConfig({
   testDir: 'e2e',
@@ -9,11 +15,18 @@ export default defineConfig({
   retries: CI ? 1 : 0,
   reporter: CI ? 'github' : 'list',
   use: { baseURL: 'http://localhost:5173', trace: 'retain-on-failure' },
-  projects: [
-    { name: 'chromium', use: devices['Desktop Chrome'] },
-    { name: 'firefox', use: devices['Desktop Firefox'] },
-    { name: 'webkit', use: devices['Desktop Safari'] },
-  ],
+  // CPU-heavy WebRTC specs run after the UI suite, one test per engine at a time, so they don't
+  // starve page loads (Firefox `page.goto` timed out under contention).
+  projects: ENGINES.flatMap(([name, device]) => [
+    { name, use: devices[device], testIgnore: WEBRTC },
+    {
+      name: `${name}-webrtc`,
+      use: devices[device],
+      testMatch: WEBRTC,
+      workers: 1,
+      dependencies: ENGINES.map(([ui]) => ui),
+    },
+  ]),
   webServer: [
     {
       command: 'npm run dev -w @zipply/web -- --strictPort --port 5173',
