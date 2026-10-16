@@ -232,6 +232,9 @@ Task fields: **Out** = scope/output · **Dep** = prerequisites · **AC** = accep
 - Phases, task IDs and acceptance criteria change only with the owner's approval. Record every change here with a date and a one-line reason.
 - A task belongs to exactly one phase. Work from a later phase is never started early without approval, even when it looks small.
 
-| Date       | Change                                                     | Approved by   |
-| ---------- | ---------------------------------------------------------- | ------------- |
-| 2026-10-16 | Initial roadmap created from the approved planning session | Project owner |
+| Date       | Change                                                                                                                                                                                                            | Approved by                                                                    |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 2026-10-16 | Initial roadmap created from the approved planning session                                                                                                                                                        | Project owner                                                                  |
+| 2026-10-16 | P1-04/test plan: `@cloudflare/vitest-pool-workers` is deprecated (and pinned vulnerable deps); replaced by its official successor `@cloudflare/vitest-plugin`. Same role, no scope change.                        | Implementation detail within approved Phase 1 scope; recorded for owner review |
+| 2026-10-16 | P1-06: the `react/no-danger` rule is implemented with ESLint core `no-restricted-syntax` (also covering `innerHTML`/`outerHTML`, `insertAdjacentHTML`, `document.write`) instead of adding `eslint-plugin-react`. | Implementation detail; recorded for owner review                               |
+| 2026-10-16 | Toolchain versions constrained by peer/engine ranges: TypeScript 6.0 (typescript-eslint < 6.1), ESLint 9 (jsx-a11y), jsdom 29 (local Node 22.14).                                                                 | Implementation detail; recorded for owner review                               |
