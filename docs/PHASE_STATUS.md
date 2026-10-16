@@ -15,17 +15,17 @@
 
 Environment for Phase 1 evidence unless stated: Windows 11 Home 10.0.26300, Node v22.14.0 (re-verified on Node v24.22.0 after the toolchain update, see below), npm 11.15.0, git 2.49.0, Git Bash. Date: 2026-10-16. Branch `phase-1-foundation` (local only, no remote).
 
-| Task  | Status      | Commit(s)            | Notes/limits                                                                      |
-| ----- | ----------- | -------------------- | --------------------------------------------------------------------------------- |
-| P1-01 | DONE        | `903414e`            | local repo only                                                                   |
-| P1-02 | DONE        | `45e1ed6`            | content review by owner pending                                                   |
-| P1-03 | DONE        | `11d50a5`, `479dd63` | hand-written minimal Vite React-TS scaffold (equivalent to template, fewer files) |
-| P1-04 | DONE        | `11d50a5`            | no deploy; Worker tests run in workerd                                            |
-| P1-05 | DONE        | `11d50a5`            | envelope-level validation only; per-message schemas are P4-01                     |
-| P1-06 | DONE        | `11d50a5`            | `react/no-danger` implemented via `no-restricted-syntax` (no extra plugin)        |
-| P1-07 | DONE (file) | `247a2af`            | **CI run NOT VERIFIED**: needs approved GitHub remote + push                      |
-| P1-08 | DONE        | `479dd63`            | local simulation; a real Vercel build needs approval                              |
-| P1-09 | DONE        | `247a2af`            | copyright holder `valhae` (renamed from `Eclipsaaaaa` on 2026-10-16)              |
+| Task  | Status | Commit(s)                              | Notes/limits                                                                                                 |
+| ----- | ------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| P1-01 | DONE   | `903414e`                              | local repo only                                                                                              |
+| P1-02 | DONE   | `45e1ed6`                              | content review by owner pending                                                                              |
+| P1-03 | DONE   | `11d50a5`, `479dd63`                   | hand-written minimal Vite React-TS scaffold (equivalent to template, fewer files)                            |
+| P1-04 | DONE   | `11d50a5`                              | no deploy; Worker tests run in workerd                                                                       |
+| P1-05 | DONE   | `11d50a5`                              | envelope-level validation only; per-message schemas are P4-01                                                |
+| P1-06 | DONE   | `11d50a5`                              | `react/no-danger` implemented via `no-restricted-syntax` (no extra plugin)                                   |
+| P1-07 | DONE   | `247a2af` + gitleaks fix (uncommitted) | GitHub run 38920428271: check job PASSED; gitleaks job failed (action bug), fixed — re-run pending next push |
+| P1-08 | DONE   | `479dd63`                              | local simulation; a real Vercel build needs approval                                                         |
+| P1-09 | DONE   | `247a2af`                              | copyright holder `valhae` (renamed from `Eclipsaaaaa` on 2026-10-16)                                         |
 
 ### Evidence (exact commands → actual results)
 
@@ -70,7 +70,10 @@ Environment for Phase 1 evidence unless stated: Windows 11 Home 10.0.26300, Node
 
 - `.github/workflows/ci.yml` parses as YAML (Python `yaml.safe_load` → jobs `check`, `secrets`).
 - Actions are pinned to commit SHAs: checkout v7.0.1, setup-node v7.1.0, gitleaks-action v3.0.0; `permissions: contents: read`.
-- **Not run on GitHub** (no remote). Gitleaks has not been run locally either: **NOT VERIFIED**.
+- **First GitHub run (38920428271, commit `1719630`, pushed by the owner to `valhae/zipply`):** job "Lint, typecheck, test, build, audit" → success (all steps). Job "Secret scan (gitleaks)" → failure: `gitleaks-action` scans `<first pushed commit>^..HEAD`, and on the repository's first push that commit (`1587504`) is the root commit with no parent ("fatal: ambiguous argument … unknown revision"). No leak was involved.
+- **Fix (uncommitted):** the workflow now installs the gitleaks v8.30.1 Linux binary (SHA-256 verified against the release checksums; archive mode `-rwxr-xr-x`) and scans the full history with `gitleaks git --redact --verbose --exit-code 1 .`. The install step was replayed locally (checksum OK, ELF x86-64 binary extracted).
+- Local proof with the same version (Windows build, checksum verified): `gitleaks git --redact --verbose --exit-code 1 .` → "8 commits scanned … no leaks found", exit 0. Negative test: a folder containing a fake `ghp_` token → "leaks found: 1", exit 1.
+- **Still pending:** a green gitleaks job on GitHub after the owner pushes this fix.
 
 **P1-08 fresh clone (CI-equivalent and Vercel-style), on `479dd63`**
 
@@ -100,17 +103,17 @@ Environment for Phase 1 evidence unless stated: Windows 11 Home 10.0.26300, Node
 
 ### Phase 1 exit criteria
 
-| #   | Criterion                                                                            | Result                                   |
-| --- | ------------------------------------------------------------------------------------ | ---------------------------------------- |
-| 1   | Git initialized; tree clean; spec + skill + docs + CLAUDE.md committed               | PASS (0 dirty files; all files tracked)  |
-| 2   | Fresh clone → `npm ci` → `npm run check` passes on Windows                           | PASS (Clone A)                           |
-| 3   | `npm run build` → `apps/web/dist` and Worker dry-run bundle                          | PASS                                     |
-| 4   | Web dev server serves page; `wrangler dev` `/healthz` → 200                          | PASS (re-verified on final commit)       |
-| 5   | `@zipply/protocol` used by both apps; Vercel-style build passes                      | PASS (Clone B)                           |
-| 6   | Runtime deps only `react`, `react-dom` (+ internal protocol); `npm audit` high = 0   | PASS                                     |
-| 7   | Lint rejects planted raw-HTML sink and cross-app import                              | PASS                                     |
-| 8   | CI workflow committed (green run pending repo-push approval, recorded as unverified) | PASS as defined; **CI run NOT VERIFIED** |
-| 9   | README, LICENSE, SECURITY.md present; nothing deployed                               | PASS                                     |
+| #   | Criterion                                                                          | Result                                                                              |
+| --- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 1   | Git initialized; tree clean; spec + skill + docs + CLAUDE.md committed             | PASS (0 dirty files; all files tracked)                                             |
+| 2   | Fresh clone → `npm ci` → `npm run check` passes on Windows                         | PASS (Clone A)                                                                      |
+| 3   | `npm run build` → `apps/web/dist` and Worker dry-run bundle                        | PASS                                                                                |
+| 4   | Web dev server serves page; `wrangler dev` `/healthz` → 200                        | PASS (re-verified on final commit)                                                  |
+| 5   | `@zipply/protocol` used by both apps; Vercel-style build passes                    | PASS (Clone B)                                                                      |
+| 6   | Runtime deps only `react`, `react-dom` (+ internal protocol); `npm audit` high = 0 | PASS                                                                                |
+| 7   | Lint rejects planted raw-HTML sink and cross-app import                            | PASS                                                                                |
+| 8   | CI workflow committed and run                                                      | PASS (check job green on GitHub); gitleaks job green on GitHub pending the fix push |
+| 9   | README, LICENSE, SECURITY.md present; nothing deployed                             | PASS                                                                                |
 
 ## Decisions log
 
@@ -139,13 +142,13 @@ Environment for Phase 1 evidence unless stated: Windows 11 Home 10.0.26300, Node
 
 ## Open risks
 
-| ID  | Risk                                                                 | Mitigation / status                                                              |
-| --- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| R1  | SAS fingerprint extraction differs across browsers                   | P3-01 spike, release-blocking                                                    |
-| R2  | Free-quota exhaustion or abuse DoS                                   | auto-response heartbeats, limits, honest "temporarily unavailable" state         |
-| R3  | 10 GB receive infeasible on some browsers                            | capability detection, reject before transfer, published matrix (P6)              |
-| R4  | Users confirm SAS without comparing                                  | copy/UX friction; residual                                                       |
-| R5  | Supply-chain or served-JS compromise                                 | minimal deps, lockfile, audit, SHA-pinned actions, CSP, release hashes; residual |
-| R6  | Scope creep from spec §43/§45                                        | post-MVP by roadmap                                                              |
-| R7  | (Resolved 2026-10-16) Local Node was older than current tools needed | Local Node upgraded to v24.22.0 LTS; `.nvmrc` = 24; jsdom 30                     |
-| R8  | CI and gitleaks have never actually run                              | first push after owner approves a GitHub remote                                  |
+| ID  | Risk                                                                 | Mitigation / status                                                                          |
+| --- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| R1  | SAS fingerprint extraction differs across browsers                   | P3-01 spike, release-blocking                                                                |
+| R2  | Free-quota exhaustion or abuse DoS                                   | auto-response heartbeats, limits, honest "temporarily unavailable" state                     |
+| R3  | 10 GB receive infeasible on some browsers                            | capability detection, reject before transfer, published matrix (P6)                          |
+| R4  | Users confirm SAS without comparing                                  | copy/UX friction; residual                                                                   |
+| R5  | Supply-chain or served-JS compromise                                 | minimal deps, lockfile, audit, SHA-pinned actions, CSP, release hashes; residual             |
+| R6  | Scope creep from spec §43/§45                                        | post-MVP by roadmap                                                                          |
+| R7  | (Resolved 2026-10-16) Local Node was older than current tools needed | Local Node upgraded to v24.22.0 LTS; `.nvmrc` = 24; jsdom 30                                 |
+| R8  | gitleaks job failed on the first push (action bug with root commit)  | replaced the action with the pinned binary scanning full history; confirm green on next push |
