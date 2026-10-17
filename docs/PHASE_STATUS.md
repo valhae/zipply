@@ -1,15 +1,15 @@
 # Phase status
 
-| #   | Phase                                                                    | Status                                                                    | Approved by user                                                          | Exit evidence                                                                     |
-| --- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| 1   | Project foundation and development tooling                               | COMPLETE                                                                  | 2026-10-16                                                                | Phase 1 evidence below; CI green on GitHub (run for `5f2ce91`)                    |
-| 2   | Responsive UI/UX and radar interface                                     | COMPLETE                                                                  | 2026-10-16 (start); accepted 2026-10-17 when the owner authorized Phase 3 | Phase 2 evidence below; committed by the owner as `40105b3` (`phase-2-ui`)        |
-| 3   | Core WebRTC file transfer                                                | COMPLETE                                                                  | 2026-10-17 (start); accepted 2026-10-17 when the owner authorized Phase 4 | Phase 3 evidence below; GitHub CI green on `phase-3-transfer`                     |
-| 4   | Online device discovery using Cloudflare                                 | ACTIVE — INCOMPLETE (only P4-10 staging deploy remains; not approved yet) | 2026-10-17 (start)                                                        | Phase 4 evidence below (uncommitted, on `phase-3-transfer`); full local e2e green |
-| 5   | Security, peer authentication, and receiver consent                      | NOT STARTED                                                               | —                                                                         | —                                                                                 |
-| 6   | Large-file optimization, integrity verification, and resumable transfers | NOT STARTED                                                               | —                                                                         | —                                                                                 |
-| 7   | Offline QR/manual pairing and offline website caching                    | NOT STARTED                                                               | —                                                                         | —                                                                                 |
-| 8   | Comprehensive testing, performance optimization, and release readiness   | NOT STARTED                                                               | —                                                                         | —                                                                                 |
+| #   | Phase                                                                    | Status                                                             | Approved by user                                                          | Exit evidence                                                              |
+| --- | ------------------------------------------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 1   | Project foundation and development tooling                               | COMPLETE                                                           | 2026-10-16                                                                | Phase 1 evidence below; CI green on GitHub (run for `5f2ce91`)             |
+| 2   | Responsive UI/UX and radar interface                                     | COMPLETE                                                           | 2026-10-16 (start); accepted 2026-10-17 when the owner authorized Phase 3 | Phase 2 evidence below; committed by the owner as `40105b3` (`phase-2-ui`) |
+| 3   | Core WebRTC file transfer                                                | COMPLETE                                                           | 2026-10-17 (start); accepted 2026-10-17 when the owner authorized Phase 4 | Phase 3 evidence below; GitHub CI green on `phase-3-transfer`              |
+| 4   | Online device discovery using Cloudflare                                 | ACTIVE — INCOMPLETE (P4-10: two-device cross-network test pending) | 2026-10-17 (start)                                                        | Phase 4 evidence below; staging live at zipply-delta.vercel.app            |
+| 5   | Security, peer authentication, and receiver consent                      | NOT STARTED                                                        | —                                                                         | —                                                                          |
+| 6   | Large-file optimization, integrity verification, and resumable transfers | NOT STARTED                                                        | —                                                                         | —                                                                          |
+| 7   | Offline QR/manual pairing and offline website caching                    | NOT STARTED                                                        | —                                                                         | —                                                                          |
+| 8   | Comprehensive testing, performance optimization, and release readiness   | NOT STARTED                                                        | —                                                                         | —                                                                          |
 
 ## Phase 4 task log
 
@@ -23,18 +23,18 @@ Start-of-phase decisions (owner, 2026-10-17):
 - P4-10: staging deploy "not yet".
 - D12: the spec §17 defaults (20 s / 60 s) were applied as recommended.
 
-| Task  | Status       | Notes/limits                                                                                                                                                                                                                                                                 |
-| ----- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P4-01 | DONE         | `packages/protocol/src/messages.ts`: strict client and server schemas (C2 split: `discoverable` boolean; scope via the route). `offer` carries `cO`, `answer` carries `nA`; no file-metadata field exists. `envelope.ts` split out to avoid a circular import                |
-| P4-02 | DONE         | `apps/signaling/src/index.ts`: exact Origin allowlist (unset = reject all), GET + upgrade required, path `/ws` or `/ws/<canonical 43-char hash>`; the room receives only the upgrade and the hash                                                                            |
-| P4-03 | DONE         | `apps/signaling/src/room.ts`: hibernation API, attachment-only state, auto-response `ping`/`pong`, 60 s alarm sweep, `new_sqlite_classes` migration, no storage records (lint-enforced)                                                                                      |
-| P4-04 | DONE         | Requests only to discoverable peers; signals only within an accepted pair, in the right direction, for 60 s; one-time ids; disconnect cancels                                                                                                                                |
-| P4-05 | DONE         | Token bucket (40 burst, 5/s), room cap 100 (`SERVER_BUSY`, 1013), pending cap 10, 64 KiB messages; per-IP not implemented (D7)                                                                                                                                               |
-| P4-06 | DONE         | Capability in the URL fragment, route = SHA-256 hash, expiry checked on join; create, copy and leave UI; expired links explained                                                                                                                                             |
-| P4-07 | DONE         | `apps/web/src/features/presence/presence.ts`: hello, snapshot, joins and leaves, heartbeat, backoff + jitter, strict parsing; the build fails on `ws://` to a non-localhost host                                                                                             |
-| P4-08 | DONE         | `connection/link.ts` (request flow) and `presence/discovery.ts`, wired into App: live radar and list, request with files, incoming-request dialog, connection panel. The dev harness was removed; transfer e2e now uses the real signaling path; full three-engine e2e green |
-| P4-09 | DONE         | "Discovery temporarily unavailable" after 3 failed attempts or `SERVER_BUSY`, with Retry; quota estimate in SD-10                                                                                                                                                            |
-| P4-10 | NOT VERIFIED | Not approved yet (owner decision); needs your Cloudflare account and an approved test origin                                                                                                                                                                                 |
+| Task  | Status      | Notes/limits                                                                                                                                                                                                                                                                 |
+| ----- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P4-01 | DONE        | `packages/protocol/src/messages.ts`: strict client and server schemas (C2 split: `discoverable` boolean; scope via the route). `offer` carries `cO`, `answer` carries `nA`; no file-metadata field exists. `envelope.ts` split out to avoid a circular import                |
+| P4-02 | DONE        | `apps/signaling/src/index.ts`: exact Origin allowlist (unset = reject all), GET + upgrade required, path `/ws` or `/ws/<canonical 43-char hash>`; the room receives only the upgrade and the hash                                                                            |
+| P4-03 | DONE        | `apps/signaling/src/room.ts`: hibernation API, attachment-only state, auto-response `ping`/`pong`, 60 s alarm sweep, `new_sqlite_classes` migration, no storage records (lint-enforced)                                                                                      |
+| P4-04 | DONE        | Requests only to discoverable peers; signals only within an accepted pair, in the right direction, for 60 s; one-time ids; disconnect cancels                                                                                                                                |
+| P4-05 | DONE        | Token bucket (40 burst, 5/s), room cap 100 (`SERVER_BUSY`, 1013), pending cap 10, 64 KiB messages; per-IP not implemented (D7)                                                                                                                                               |
+| P4-06 | DONE        | Capability in the URL fragment, route = SHA-256 hash, expiry checked on join; create, copy and leave UI; expired links explained                                                                                                                                             |
+| P4-07 | DONE        | `apps/web/src/features/presence/presence.ts`: hello, snapshot, joins and leaves, heartbeat, backoff + jitter, strict parsing; the build fails on `ws://` to a non-localhost host                                                                                             |
+| P4-08 | DONE        | `connection/link.ts` (request flow) and `presence/discovery.ts`, wired into App: live radar and list, request with files, incoming-request dialog, connection panel. The dev harness was removed; transfer e2e now uses the real signaling path; full three-engine e2e green |
+| P4-09 | DONE        | "Discovery temporarily unavailable" after 3 failed attempts or `SERVER_BUSY`, with Retry; quota estimate in SD-10                                                                                                                                                            |
+| P4-10 | IN PROGRESS | Owner approved and ran the deploys on 2026-10-17: staging Worker and Vercel site live and verified (below); the two-device cross-network test is still to do                                                                                                                 |
 
 ### Phase 4 evidence (exact commands → actual results)
 
@@ -76,6 +76,27 @@ Start-of-phase decisions (owner, 2026-10-17):
 - `npm audit --audit-level=high` → 0 vulnerabilities (`fast-check` 4.10.2, MIT, dev only).
 - `gitleaks dir --redact --exit-code 1 apps packages e2e playwright.config.ts docs` → no leaks found.
 - grep for `console.` / `debugger` in signaling, presence, connection and protocol sources (tests excluded) → no matches.
+
+### P4-10 staging deploy (owner-approved and owner-run, 2026-10-17)
+
+- **Worker deploy:** the owner ran `npx wrangler login` and `npx wrangler deploy --env staging`. This registered the `workers.dev` subdomain `valhae`; the Worker is at `https://zipply-signaling-staging.valhae.workers.dev`. It is a separate Worker (`env.staging` in `wrangler.jsonc`), on the Free plan, with no billing prompt.
+- **Allowlist:** staging `ALLOWED_ORIGINS` = `http://localhost:5173,https://zipply-delta.vercel.app` (local development plus the approved test origin).
+- **Frontend deploy:** the owner ran `npx vercel link` (project `zipply`, Root Directory `apps/web`, Vite) and `npx vercel deploy --prod -b VITE_SIGNALING_URL=wss://…/ws -b VITE_STUN_URLS=stun:stun.cloudflare.com:3478`. Result: `https://zipply-delta.vercel.app`, public 200. The per-deploy URL redirects to Vercel login (Deployment Protection).
+  - GitHub auto-deploy failed to connect (the Vercel GitHub app has no access to the repo), so deploys are manual only.
+  - `vercel link` created `.env.local` (a Vercel OIDC token; ignored by git, and excluded from uploads by the new `.vercelignore`). It also appended `.env*` to `.gitignore`, which would have hidden `.env.example`; that was reverted.
+- **Found and fixed:** `workers.dev` also serves the Worker over plain HTTP, so an unencrypted `ws://` upgrade was possible. The Worker now answers `403 HTTPS required` for non-HTTPS requests to `/ws`, except localhost (TDD: failed first, then signaling 51/51). Redeployed.
+- **Live checks (curl from the test machine, after the redeploy):**
+  - `/healthz` → 200 `{"status":"ok","protocolVersion":1}`, `Cache-Control: no-store`.
+  - `wss` upgrade with Origin `https://zipply-delta.vercel.app` → 101, `http://localhost:5173` → 101.
+  - Look-alike origin → 403; the protected per-deploy Vercel origin → 403; no Origin → 403.
+  - Plaintext `ws://` from the allowed origin → 403; `/ws` without upgrade → 426; `/upload` → 404.
+  - First HTTPS attempt failed the TLS handshake for ~20 s while the new subdomain's certificate was provisioned, then worked.
+- **Built site:** contains `wss://zipply-signaling-staging.valhae.workers.dev/ws` and the Cloudflare STUN URL, and no `ws://localhost`.
+- **e2e against the real Cloudflare Worker** (temporary Playwright configs, deleted after use; Chromium, one worker):
+  - local page → staging Worker: 11 passed (discovery 5, transfer 6).
+  - deployed page `https://zipply-delta.vercel.app` → staging Worker: 11 passed, including 50 MiB byte-exact in 10.8 s.
+  - Both pages ran on one machine.
+- **Still to do:** the two-device test on different networks (phone on mobile data, laptop on Wi-Fi).
 
 ## Phase 3 task log
 
