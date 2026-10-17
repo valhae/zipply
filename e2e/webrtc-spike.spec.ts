@@ -10,9 +10,13 @@ declare global {
       b: RTCPeerConnection,
       edit?: (sdp: string) => string,
     ) => Promise<{ da: RTCDataChannel; db: RTCDataChannel; open: boolean }>;
+    __peer?: { pc: RTCPeerConnection; dc: RTCDataChannel };
   }
 }
 
+// GitHub-hosted WebKit offers only an mDNS host candidate that another page cannot resolve
+// (spike (f) on CI: connectionState stays 'new'). Safari needs real devices anyway (R11).
+const WEBKIT_CI = "CI WebKit cannot resolve another page's mDNS host candidate";
 const SAS = '/src/features/connection/sas.ts';
 
 test.beforeEach(async ({ page }, testInfo) => {
@@ -223,4 +227,58 @@ test('(e) maxMessageSize is recorded and one full chunk frame arrives intact', a
   finding(page, 'maxMessageSize', r.maxMessageSize);
   expect(r.intact).toBe(true);
   expect(r.maxMessageSize).toBeGreaterThanOrEqual(65_536 + 70);
+});
+
+// Two separate pages (separate renderer processes), like the transfer harness. Non-trickle: each SDP
+// carries its gathered candidates. Logs only the *kind* of host address (mDNS name, IPv4, IPv6,
+// loopback), never an address, to explain environments where ICE cannot connect.
+test('(f) two pages connect; host-candidate kinds are recorded', async ({ page }, testInfo) => {
+  test.skip(!!process.env.CI && testInfo.project.name === 'webkit-webrtc', WEBKIT_CI);
+  const other = await page.context().newPage();
+  await other.goto('/');
+  const describeLocal = (p: Page, remote: RTCSessionDescriptionInit | null) =>
+    p.evaluate(async (remote) => {
+      if (!window.__peer) {
+        const pc = new RTCPeerConnection();
+        window.__peer = { pc, dc: pc.createDataChannel('x', { negotiated: true, id: 0 }) };
+      }
+      const { pc } = window.__peer;
+      if (remote) await pc.setRemoteDescription(remote);
+      if (remote?.type === 'answer') return null;
+      await pc.setLocalDescription();
+      await new Promise<void>((resolve) => {
+        const done = () => pc.iceGatheringState === 'complete' && resolve();
+        pc.addEventListener('icegatheringstatechange', done);
+        done();
+        setTimeout(resolve, 5_000);
+      });
+      return { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp };
+    }, remote);
+  const kinds = (sdp: string) =>
+    sdp
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith('a=candidate:'))
+      .map((l) => {
+        const address = l.split(' ')[4] ?? '';
+        if (address.endsWith('.local')) return 'mdns';
+        if (address.startsWith('127.') || address === '::1') return 'loopback';
+        return address.includes(':') ? 'ipv6' : 'ipv4';
+      })
+      .reduce<Record<string, number>>((n, k) => ({ ...n, [k]: (n[k] ?? 0) + 1 }), {});
+
+  const offer = (await describeLocal(page, null))!;
+  const answer = (await describeLocal(other, offer))!;
+  await describeLocal(page, answer);
+  const result = await page.evaluate(
+    () =>
+      new Promise<{ open: boolean; state: string }>((resolve) => {
+        const { pc, dc } = window.__peer!;
+        const report = (open: boolean) => resolve({ open, state: pc.connectionState });
+        if (dc.readyState === 'open') return report(true);
+        dc.onopen = () => report(true);
+        setTimeout(() => report(false), 15_000);
+      }),
+  );
+  finding(page, 'two-page', { offer: kinds(offer.sdp), answer: kinds(answer.sdp), ...result });
+  expect(result.open).toBe(true);
 });

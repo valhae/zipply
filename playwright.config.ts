@@ -7,6 +7,8 @@ const ENGINES = [
   ['firefox', 'Desktop Firefox'],
   ['webkit', 'Desktop Safari'],
 ] as const;
+// On GitHub runners Firefox gathered no ICE candidates at all, even with mDNS obfuscation off or
+// loopback candidates on (spike (f), 2026-10-17; cause unknown). Its WebRTC specs run locally only.
 
 export default defineConfig({
   testDir: 'e2e',
@@ -19,13 +21,17 @@ export default defineConfig({
   // starve page loads (Firefox `page.goto` timed out under contention).
   projects: ENGINES.flatMap(([name, device]) => [
     { name, use: devices[device], testIgnore: WEBRTC },
-    {
-      name: `${name}-webrtc`,
-      use: devices[device],
-      testMatch: WEBRTC,
-      workers: 1,
-      dependencies: ENGINES.map(([ui]) => ui),
-    },
+    ...(CI && name === 'firefox'
+      ? []
+      : [
+          {
+            name: `${name}-webrtc`,
+            use: devices[device],
+            testMatch: WEBRTC,
+            workers: 1,
+            dependencies: ENGINES.map(([ui]) => ui),
+          },
+        ]),
   ]),
   webServer: [
     {
