@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button } from '../../ui/Button';
+import { LockIcon } from '../../ui/LockIcon';
 import type { Room } from './room';
 
 interface Props {
@@ -19,7 +20,9 @@ export function RoomControl({ room, invalid, onCreate, onLeave }: Props) {
 
   return (
     <div className="mt-4 rounded-2xl border border-gray-200 p-5">
-      <p className="font-medium">Private room</p>
+      <p className="flex items-center gap-1.5 font-medium">
+        <LockIcon /> Private room
+      </p>
       {invalid ? (
         <p role="alert" className="mt-2 text-[13px] text-gray-600">
           This room link is invalid or has expired. Ask for a new link, or go back to the lobby.

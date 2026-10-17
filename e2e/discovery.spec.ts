@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test';
 const badge = (p: Page) => p.getByRole('banner').getByRole('status');
 const people = (p: Page) => p.getByRole('list', { name: 'Discoverable people' });
 const nameOf = async (p: Page) =>
-  /Guest \d{4}/.exec((await p.getByText(/you appear as/).textContent())!)![0];
+  /you appear as (\S+)/.exec((await p.getByText(/you appear as/).textContent())!)![1]!;
 
 async function online(page: Page, url = '/') {
   const p = await page.context().newPage();
@@ -40,6 +40,41 @@ test('a peer appears and disappears live as it changes visibility or leaves (P4-
   await expect(people(bob).getByRole('button', { name })).toHaveCount(0);
 });
 
+test('a chosen display name is what others see', async ({ page }) => {
+  const alice = await online(page);
+  const bob = await online(page);
+  const name = `Mar${Date.now() % 100_000}`;
+  await alice.getByRole('button', { name: 'Edit name' }).click();
+  await alice.getByLabel('Display name').fill(name);
+  await alice.getByRole('button', { name: 'Save name' }).click();
+  await expect(badge(alice)).toHaveText('Invisible', { timeout: 20_000 }); // reconnected
+  await toggle(alice);
+  await expect(people(bob).getByRole('button', { name })).toBeVisible();
+});
+
+test('names are unique among visible people: a duplicate stays hidden with a message', async ({
+  page,
+}) => {
+  const watcher = await online(page);
+  const alice = await online(page);
+  await toggle(alice);
+  const taken = await nameOf(alice);
+  const named = people(watcher).getByRole('button', { name: new RegExp(`^${taken} `, 'i') });
+  await expect(named).toHaveCount(1);
+
+  const bob = await online(page);
+  await toggle(bob);
+  await bob.getByRole('button', { name: 'Edit name' }).click();
+  await bob.getByLabel('Display name').fill(taken.toLowerCase());
+  await bob.getByRole('button', { name: 'Save name' }).click();
+  await expect(bob.getByRole('alert')).toContainText('already uses this name', { timeout: 20_000 });
+  await expect(bob.getByRole('switch', { name: 'Discoverable' })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  );
+  await expect(named).toHaveCount(1); // still only Alice
+});
+
 test('private rooms are separate from the lobby and from each other (P4-06)', async ({ page }) => {
   const host = await online(page);
   await host.getByRole('button', { name: 'Create private room' }).click();
@@ -50,6 +85,9 @@ test('private rooms are separate from the lobby and from each other (P4-06)', as
 
   const guest = await online(page, link);
   await expect(people(guest).getByRole('button', { name })).toBeVisible();
+  await expect(
+    people(guest).getByRole('button', { name }).locator('svg[data-icon="lock"]'),
+  ).toBeVisible();
   const outsider = await online(page);
   await expect(
     outsider.getByText('No one is discoverable here right now.').or(people(outsider)),

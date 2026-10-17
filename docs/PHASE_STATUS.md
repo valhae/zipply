@@ -98,6 +98,47 @@ Start-of-phase decisions (owner, 2026-10-17):
   - Both pages ran on one machine.
 - **Still to do:** the two-device test on different networks (phone on mobile data, laptop on Wi-Fi).
 
+### Owner requests after the staging test (2026-10-17)
+
+- **Editable display name** (`presence/NameControl.tsx`; `storedName`/`rememberName`/`setDisplayName` in `presence/discovery.ts`):
+  - Trimmed, NFC-normalized and checked with the same `isValidDisplayName` the server uses.
+  - Kept in `localStorage` on this device only (try/catch if storage is blocked).
+  - A rename reconnects (the name is part of `hello`, so there is no protocol change). It is disabled while a connection or transfer is in progress.
+- **Automatic saving of received files** (`transfer/TransferView.tsx`): after Accept files and successful verification, each file is saved once, on the receiving side only. The Save links remain as a fallback. Recorded in SD-06 as an owner decision (replaces spec §23 step 7).
+- **TDD:**
+  - rename and name storage: 6 failed, then 10 passed;
+  - NameControl: 6 failed, then passed;
+  - auto-save: 1 failed (the sender case passed trivially as a regression guard), then passed.
+- **e2e:**
+  - transfer helper now collects downloads the page starts itself, with no clicks: `npx playwright test e2e/transfer.spec.ts --project=chromium-webrtc --no-deps` → 6 passed (5-file and 50 MiB transfers saved automatically, byte-exact);
+  - new rename test: `npx playwright test e2e/discovery.spec.ts --project=chromium` → 6 passed;
+  - `--project=chromium --workers=2` → 44 passed (layout and axe included).
+- `npm run check` → exit 0: protocol 100, signaling 51, web 403.
+- Not done: QR pairing, which remains P7-04 (Phase 7).
+
+### Owner requests, round 2 (2026-10-17)
+
+- **Names:**
+  - One-word pixel-style auto names, new each visit (`randomPixelName`, e.g. `Voxl27`; 40 bases × 90 numbers).
+  - A custom name the user types is kept on this device, with a **Random name** button to go back.
+  - Names are one word, enforced by the protocol and the server.
+  - Unique among visible peers in a scope, with the new `NAME_TAKEN` code. An auto name that is taken retries itself (up to 5 times). A taken custom name keeps the user hidden with an explanation.
+- **Lock icon:** next to every person in the list while in a private room (with screen-reader text "Private room:"); also on the room card and in the discovery header.
+- **Verification change:** decided as D19 for Phase 5, not built now. The proposed in-app check was explained to the owner as insecure; the secure mutual spoken-and-typed design was chosen instead.
+- **TDD (RED observed before GREEN):**
+  - protocol: 5 failed, then 108 passed;
+  - room uniqueness: 2 failed, then 55 passed (the helper now gives each test peer a unique name because tests share the lobby);
+  - presence `nameTaken`: 1 failed, then 26 passed;
+  - discovery: 9 failed, then 14 passed;
+  - NameControl: 7 failed, then 9 passed;
+  - lock: 1 failed, then 21 passed.
+- **e2e:**
+  - `npx playwright test e2e/discovery.spec.ts --project=chromium` → 7 passed (new: duplicate name stays hidden with a message, seen once by an observer page; lock icon in a room);
+  - transfer spec → 6 passed;
+  - `--project=chromium --workers=2` → 45 passed.
+- `npm run check` → exit 0: protocol 108, signaling 55, web 413.
+- The staging Worker and site must be redeployed to get these changes (the Worker changed: one-word rule and uniqueness).
+
 ## Phase 3 task log
 
 Environment: Windows 11 Home 10.0.26300, Node v24.22.0, npm 11.15.0, Playwright 1.64.1 (Chromium 156.0.8078.4, Firefox 157.0, WebKit 27.2). Date: 2026-10-17. Work is uncommitted on the current branch `phase-2-ui`, for the owner to commit.
@@ -350,28 +391,29 @@ Environment for Phase 1 evidence unless stated: Windows 11 Home 10.0.26300, Node
 
 ## Decisions log
 
-| ID  | Decision                                                                                          | Date       | Status                                                                                                       |
-| --- | ------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------ |
-| —   | Initial roadmap and Phase 1 scope approved                                                        | 2026-10-16 | APPROVED by owner                                                                                            |
-| D1  | License: MIT; copyright holder `valhae` (owner name updated 2026-10-16)                           | 2026-10-16 | APPROVED by owner                                                                                            |
-| —   | Local git commits on a phase branch are allowed; no remote, no push                               | 2026-10-16 | APPROVED by owner                                                                                            |
-| D2  | `ctx.storage.setAlarm()` used only as a timer for the lease sweep                                 | 2026-10-17 | APPROVED by owner; implemented in P4-03                                                                      |
-| D3  | SAS v1 commit-then-reveal, six words                                                              | 2026-10-17 | APPROVED by owner (recommended option); evidence in SD-02                                                    |
-| D4  | New DTLS association → fresh SAS; `restartIce()` first                                            | —          | PROPOSED (needed by P6-05)                                                                                   |
-| D5  | Integrity: per-chunk SHA-256 + digest-list root + read-back, no new dependency                    | 2026-10-17 | APPROVED by owner (recommended option); read-back in P6-02                                                   |
-| D6  | STUN: `stun.cloudflare.com:3478` via `VITE_STUN_URLS`                                             | 2026-10-17 | APPROVED by owner (recommended option); free status confirmed in Cloudflare's FAQ                            |
-| D7  | Per-IP rate limiting via the Workers Rate Limiting binding                                        | 2026-10-17 | Owner: not in Phase 4 (Free-plan availability unconfirmed in Cloudflare docs); revisit with a staging deploy |
-| D8  | Shared `packages/protocol` workspace consumed as TS source                                        | 2026-10-16 | APPLIED in Phase 1 as part of the approved roadmap (P1-05)                                                   |
-| D9  | Hand-written strict validators (no runtime dependency) + fast-check for property tests (dev only) | 2026-10-17 | APPROVED by owner; applied in P4-01                                                                          |
-| D10 | SAS wordlist: BIP-39 English                                                                      | 2026-10-17 | APPROVED by owner (recommended option); licence MIT (BIP-39 header); file hash verified                      |
-| D11 | Fonts: self-host Geist + Geist Mono + Geist Pixel Square (OFL confirmed); no Source Serif 4       | 2026-10-16 | APPROVED by owner; applied in P2-02                                                                          |
-| D12 | Heartbeat 20 s / TTL 60 s via auto-response ping                                                  | 2026-10-17 | APPLIED (spec §17 defaults, as recommended; owner may change)                                                |
-| D13 | First public tag `v0.1.0`                                                                         | —          | PROPOSED (needed by P8-07)                                                                                   |
-| D14 | External actions approved individually (GitHub repo, staging Worker, Vercel, PSI key)             | —          | STANDING RULE; none approved yet                                                                             |
-| D15 | Cross-phase parallelism                                                                           | —          | Default: strict sequence                                                                                     |
-| D16 | Available test devices                                                                            | —          | OPEN — owner to list                                                                                         |
-| D17 | `Zipply_Project_Plan.md` unchanged; conflicts resolved in docs                                    | 2026-10-16 | APPLIED (spec untouched, verified by `git diff 903414e HEAD`)                                                |
-| D18 | Independent review of SAS design before public release                                            | —          | PROPOSED                                                                                                     |
+| ID  | Decision                                                                                                           | Date       | Status                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------ |
+| —   | Initial roadmap and Phase 1 scope approved                                                                         | 2026-10-16 | APPROVED by owner                                                                                            |
+| D1  | License: MIT; copyright holder `valhae` (owner name updated 2026-10-16)                                            | 2026-10-16 | APPROVED by owner                                                                                            |
+| —   | Local git commits on a phase branch are allowed; no remote, no push                                                | 2026-10-16 | APPROVED by owner                                                                                            |
+| D2  | `ctx.storage.setAlarm()` used only as a timer for the lease sweep                                                  | 2026-10-17 | APPROVED by owner; implemented in P4-03                                                                      |
+| D3  | SAS v1 commit-then-reveal, six words                                                                               | 2026-10-17 | APPROVED by owner (recommended option); evidence in SD-02                                                    |
+| D4  | New DTLS association → fresh SAS; `restartIce()` first                                                             | —          | PROPOSED (needed by P6-05)                                                                                   |
+| D5  | Integrity: per-chunk SHA-256 + digest-list root + read-back, no new dependency                                     | 2026-10-17 | APPROVED by owner (recommended option); read-back in P6-02                                                   |
+| D6  | STUN: `stun.cloudflare.com:3478` via `VITE_STUN_URLS`                                                              | 2026-10-17 | APPROVED by owner (recommended option); free status confirmed in Cloudflare's FAQ                            |
+| D7  | Per-IP rate limiting via the Workers Rate Limiting binding                                                         | 2026-10-17 | Owner: not in Phase 4 (Free-plan availability unconfirmed in Cloudflare docs); revisit with a staging deploy |
+| D8  | Shared `packages/protocol` workspace consumed as TS source                                                         | 2026-10-16 | APPLIED in Phase 1 as part of the approved roadmap (P1-05)                                                   |
+| D9  | Hand-written strict validators (no runtime dependency) + fast-check for property tests (dev only)                  | 2026-10-17 | APPROVED by owner; applied in P4-01                                                                          |
+| D10 | SAS wordlist: BIP-39 English                                                                                       | 2026-10-17 | APPROVED by owner (recommended option); licence MIT (BIP-39 header); file hash verified                      |
+| D11 | Fonts: self-host Geist + Geist Mono + Geist Pixel Square (OFL confirmed); no Source Serif 4                        | 2026-10-16 | APPROVED by owner; applied in P2-02                                                                          |
+| D12 | Heartbeat 20 s / TTL 60 s via auto-response ping                                                                   | 2026-10-17 | APPLIED (spec §17 defaults, as recommended; owner may change)                                                |
+| D13 | First public tag `v0.1.0`                                                                                          | —          | PROPOSED (needed by P8-07)                                                                                   |
+| D14 | External actions approved individually (GitHub repo, staging Worker, Vercel, PSI key)                              | —          | STANDING RULE; none approved yet                                                                             |
+| D15 | Cross-phase parallelism                                                                                            | —          | Default: strict sequence                                                                                     |
+| D16 | Available test devices                                                                                             | —          | OPEN — owner to list                                                                                         |
+| D17 | `Zipply_Project_Plan.md` unchanged; conflicts resolved in docs                                                     | 2026-10-16 | APPLIED (spec untouched, verified by `git diff 903414e HEAD`)                                                |
+| D18 | Independent review of SAS design before public release                                                             | —          | PROPOSED                                                                                                     |
+| D19 | Verification UX: mutual spoken-and-typed 3-word check, each device checks only what its own user typed (see SD-02) | 2026-10-17 | APPROVED by owner for Phase 5; the in-app answer check was rejected as insecure                              |
 
 ## Open risks
 

@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Download, type Page } from '@playwright/test';
 
 // Two pages of the real app find each other through the local signaling Worker (`wrangler dev`) and
 // connect over a real RTCPeerConnection. Each test uses its own private room for isolation, except
@@ -56,6 +56,9 @@ async function openTabs(page: Page, { lobby = false } = {}) {
     url = await sender.getByLabel('Room link').inputValue();
   }
   const receiver = await context.newPage();
+  const got: Download[] = [];
+  saved.set(receiver, got);
+  receiver.on('download', (d) => got.push(d));
   await receiver.goto(url);
   for (const p of [sender, receiver]) {
     // Live handshake with the local Worker; slow when the machine is loaded.
@@ -64,9 +67,9 @@ async function openTabs(page: Page, { lobby = false } = {}) {
     });
   }
   await receiver.getByRole('switch', { name: 'Discoverable' }).click();
-  const receiverName = /Guest \d{4}/.exec(
+  const receiverName = /you appear as (\S+)/.exec(
     (await receiver.getByText(/you appear as/).textContent())!,
-  )![0];
+  )![1]!;
   return { sender, receiver, receiverName };
 }
 
@@ -106,17 +109,18 @@ const axe = async (p: Page) =>
   );
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
+// Verified files are saved automatically (owner decision, 2026-10-17): no clicks here.
+const saved = new WeakMap<Page, Download[]>();
+
 async function downloads(receiver: Page, expected: { name: string; buffer: Buffer }[]) {
   await expect(status(receiver)).toContainText('Every file passed its integrity check', {
     timeout: 120_000,
   });
-  for (const file of expected) {
-    const [download] = await Promise.all([
-      receiver.waitForEvent('download'),
-      receiver.getByRole('link', { name: `Save ${file.name}` }).click(),
-    ]);
-    expect(download.suggestedFilename()).toBe(file.name);
-    expect(sha(await readFile((await download.path())!))).toBe(sha(file.buffer));
+  const got = saved.get(receiver)!;
+  await expect.poll(() => got.length).toBe(expected.length);
+  expect(got.map((d) => d.suggestedFilename())).toEqual(expected.map((f) => f.name));
+  for (const [i, file] of expected.entries()) {
+    expect(sha(await readFile((await got[i]!.path())!))).toBe(sha(file.buffer));
   }
 }
 

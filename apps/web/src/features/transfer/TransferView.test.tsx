@@ -179,3 +179,44 @@ describe('TransferView: transfer and result', () => {
     expect(screen.getByText(text)).toBeTruthy();
   });
 });
+
+describe('TransferView: automatic save', () => {
+  const blob = new Blob(['x']);
+  const downloads = [
+    { name: 'a.pdf', size: 1, url: 'blob:test/a', blob },
+    { name: 'b.txt', size: 1, url: 'blob:test/b', blob },
+  ];
+  const clicks = () => {
+    const seen: { href: string; download: string }[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      seen.push({ href: this.getAttribute('href')!, download: this.download });
+    });
+    return seen;
+  };
+  afterEach(() => vi.restoreAllMocks());
+
+  it('saves every verified file once the transfer completes (receiver only)', () => {
+    const seen = clicks();
+    const s = fakeSession({ state: 'transferring', progress: { confirmed: 1, total: 2 } });
+    const { rerender } = render(<TransferView session={s} direction="receive" />);
+    expect(seen).toEqual([]);
+    act(() => s.set({ state: 'completed', downloads }));
+    expect(seen).toEqual([
+      { href: 'blob:test/a', download: 'a.pdf' },
+      { href: 'blob:test/b', download: 'b.txt' },
+    ]);
+    rerender(<TransferView session={s} direction="receive" />);
+    expect(seen).toHaveLength(2);
+    expect(screen.getByRole('link', { name: /Save a\.pdf/ })).toBeTruthy(); // fallback stays
+  });
+
+  it('never saves on the sending side', () => {
+    const seen = clicks();
+    render(
+      <TransferView session={fakeSession({ state: 'completed', downloads })} direction="send" />,
+    );
+    expect(seen).toEqual([]);
+  });
+});

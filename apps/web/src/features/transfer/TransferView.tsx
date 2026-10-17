@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { Button } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import type { FailReason } from '../connection/gate';
@@ -49,7 +49,7 @@ function statusText(s: Snapshot, direction: Direction): string {
     case 'completed':
       return direction === 'send'
         ? 'Done. The receiver verified every file.'
-        : 'Done. Every file passed its integrity check.';
+        : 'Done. Every file passed its integrity check and is being saved to your downloads. If your browser asks, allow the downloads, or use the Save links.';
     case 'rejected':
       if (s.tooLarge) {
         return 'Rejected automatically: the files are larger than this browser can receive (256 MiB limit for now).';
@@ -66,6 +66,21 @@ function statusText(s: Snapshot, direction: Direction): string {
 
 export function TransferView({ session, direction }: { session: Session; direction: Direction }) {
   const s = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const saved = useRef(new Set<string>());
+
+  // Owner decision (2026-10-17): after the user accepted the files and every file passed its
+  // integrity check, save them automatically. Still inert: octet-stream, sanitized name, never opened.
+  useEffect(() => {
+    if (direction !== 'receive' || s.state !== 'completed') return;
+    for (const d of s.downloads) {
+      if (saved.current.has(d.url)) continue;
+      saved.current.add(d.url);
+      const a = document.createElement('a');
+      a.href = d.url;
+      a.download = d.name;
+      a.click();
+    }
+  }, [direction, s.state, s.downloads]);
   const status = statusText(s, direction);
   const active = !['completed', 'rejected', 'canceled', 'failed'].includes(s.state);
   const verifying = s.state === 'verifying' && s.phrase !== null;

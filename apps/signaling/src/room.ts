@@ -52,6 +52,8 @@ type Relayed = Extract<ClientMessage, { type: 'offer' | 'answer' | 'ice-candidat
 const read = (ws: WebSocket) => ws.deserializeAttachment() as Attachment;
 const write = (ws: WebSocket, att: Attachment) => ws.serializeAttachment(att);
 
+const nameKey = (name: string) => name.normalize('NFKC').toLowerCase();
+
 function b64url(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, '-')
@@ -171,7 +173,10 @@ export class Room extends DurableObject {
     const att = read(ws); // re-read: the await above may have let other events run
     if (att.left || att.peerId) return;
     const peerId = b64url(crypto.getRandomValues(new Uint8Array(16)));
-    write(ws, { ...att, peerId, name: p.displayName, discoverable: p.discoverable });
+    // Names are unique among visible peers; a duplicate joins hidden and is told NAME_TAKEN.
+    const taken = p.discoverable && this.nameTaken(p.displayName, ws);
+    const discoverable = p.discoverable && !taken;
+    write(ws, { ...att, peerId, name: p.displayName, discoverable });
     this.send(ws, {
       type: 'hello-accepted',
       payload: {
@@ -181,7 +186,8 @@ export class Room extends DurableObject {
       },
     });
     this.send(ws, { type: 'peer-snapshot', payload: { peers: this.visiblePeers(ws) } });
-    if (p.discoverable) {
+    if (taken) this.error(ws, 'NAME_TAKEN');
+    if (discoverable) {
       this.broadcast(ws, {
         type: 'peer-joined',
         payload: { peer: { peerId, displayName: p.displayName } },
@@ -191,6 +197,7 @@ export class Room extends DurableObject {
 
   private visibility(ws: WebSocket, att: Attachment, discoverable: boolean) {
     if (att.discoverable === discoverable) return;
+    if (discoverable && this.nameTaken(att.name!, ws)) return this.error(ws, 'NAME_TAKEN');
     write(ws, { ...att, discoverable });
     const peerId = att.peerId!;
     this.broadcast(
@@ -286,6 +293,17 @@ export class Room extends DurableObject {
   private reject(ws: WebSocket, code: ErrorCode, closeCode: number) {
     this.error(ws, code);
     this.leave(ws, closeCode);
+  }
+
+  /**
+   * Compared case- and compatibility-insensitively (NFKC + lower case). Only visible peers count,
+   * so the answer never reveals hidden ones.
+   */
+  private nameTaken(name: string, except: WebSocket): boolean {
+    const key = nameKey(name);
+    return this.live().some(
+      (s) => s.ws !== except && s.att.peerId && s.att.discoverable && nameKey(s.att.name!) === key,
+    );
   }
 
   private live(): Live[] {

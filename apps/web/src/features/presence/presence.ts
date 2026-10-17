@@ -26,6 +26,8 @@ export interface PresenceSnapshot {
   /** Repeated failures or SERVER_BUSY: show "Discovery temporarily unavailable" (P4-09). */
   unavailable: boolean;
   roomInvalid: boolean;
+  /** The server kept us hidden because a visible peer here already uses this name. */
+  nameTaken: boolean;
   selfId: string | null;
   peers: Peer[];
 }
@@ -36,6 +38,7 @@ export const OFFLINE: PresenceSnapshot = {
   status: 'offline',
   unavailable: false,
   roomInvalid: false,
+  nameTaken: false,
   selfId: null,
   peers: [],
 };
@@ -77,6 +80,7 @@ export function createPresence(o: PresenceOptions) {
       status: snap.unavailable ? 'offline' : everOnline ? 'reconnecting' : 'connecting',
       selfId: null,
       peers: [],
+      nameTaken: false,
     });
     socket.onopen = () => {
       aliveAt = Date.now();
@@ -99,8 +103,9 @@ export function createPresence(o: PresenceOptions) {
       if (ws !== socket) return;
       ws = null;
       clearInterval(heartbeat);
-      if (stopped || snap.roomInvalid)
-        return update({ status: 'offline', selfId: null, peers: [] });
+      if (stopped || snap.roomInvalid) {
+        return update({ status: 'offline', selfId: null, peers: [], nameTaken: false });
+      }
       failures++;
       const unavailable = snap.unavailable || failures >= UNAVAILABLE_AFTER;
       update({
@@ -108,6 +113,7 @@ export function createPresence(o: PresenceOptions) {
         unavailable,
         selfId: null,
         peers: [],
+        nameTaken: false,
       });
       const delay = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (failures - 1)) * (0.5 + random());
       retryTimer = setTimeout(connect, delay);
@@ -138,6 +144,7 @@ export function createPresence(o: PresenceOptions) {
       case 'error':
         if (m.payload.code === 'SERVER_BUSY') update({ unavailable: true });
         if (m.payload.code === 'ROOM_INVALID') update({ roomInvalid: true });
+        if (m.payload.code === 'NAME_TAKEN') update({ nameTaken: true });
     }
     handlers.forEach((fn) => fn(m));
   }
@@ -157,8 +164,10 @@ export function createPresence(o: PresenceOptions) {
     },
     setDiscoverable(next: boolean) {
       discoverable = next;
-      if (snap.status === 'online')
+      if (snap.nameTaken) update({ nameTaken: false });
+      if (snap.status === 'online') {
         ws?.send(encodeMessage({ type: 'visibility', payload: { discoverable } }));
+      }
     },
     send(m: ClientMessage): boolean {
       if (!ws || ws.readyState !== OPEN || !snap.selfId) return false;

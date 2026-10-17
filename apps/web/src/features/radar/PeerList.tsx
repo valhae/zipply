@@ -1,4 +1,5 @@
 import { Chip } from '../../ui/Chip';
+import { LockIcon } from '../../ui/LockIcon';
 import { STATE_LABELS } from './labels';
 import type { RadarPeer } from './types';
 
@@ -6,9 +7,11 @@ interface Props {
   peers: RadarPeer[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** Everyone listed is in the same private room. */
+  locked?: boolean;
 }
 
-export function PeerList({ peers, selectedId, onSelect }: Props) {
+export function PeerList({ peers, selectedId, onSelect, locked = false }: Props) {
   if (peers.length === 0) {
     return (
       <p className="border-y border-gray-200 py-6 text-center text-[13px] text-gray-500">
@@ -31,6 +34,12 @@ export function PeerList({ peers, selectedId, onSelect }: Props) {
           >
             <span className="min-w-0 truncate" title={peer.name}>
               {peer.id === selectedId && <span aria-hidden="true">→ </span>}
+              {locked && (
+                <>
+                  <LockIcon className="mr-1.5 -mt-0.5 size-3.5 text-gray-500" />
+                  <span className="sr-only">Private room:</span>{' '}
+                </>
+              )}
               {peer.name}
             </span>
             <Chip inverted={peer.state === 'connected'}>{STATE_LABELS[peer.state]}</Chip>

@@ -20,8 +20,8 @@ const candidate = {
 };
 
 const CLIENT: ClientMessage[] = [
-  { type: 'hello', payload: { displayName: 'Guest 4821', discoverable: false } },
-  { type: 'hello', payload: { displayName: 'Bücher 📚', discoverable: true, room: ROOM } },
+  { type: 'hello', payload: { displayName: 'Pixl', discoverable: false } },
+  { type: 'hello', payload: { displayName: 'Bücher📚', discoverable: true, room: ROOM } },
   { type: 'visibility', payload: { discoverable: true } },
   { type: 'connection-request', payload: { requestId: ID, targetPeerId: ID2 } },
   { type: 'connection-response', payload: { requestId: ID, accept: false } },
@@ -55,6 +55,7 @@ const SERVER: ServerMessage[] = [
   { type: 'ice-candidate', payload: { requestId: ID, connId: ID2, candidate } },
   { type: 'cancel', payload: { requestId: ID } },
   { type: 'error', payload: { code: 'RATE_LIMITED' } },
+  { type: 'error', payload: { code: 'NAME_TAKEN' } },
 ];
 
 const raw = (type: string, payload: unknown, version = 1) =>
@@ -146,6 +147,7 @@ describe('server messages cannot assert trust', () => {
       raw('hello-accepted', { peerId: ID, heartbeatSeconds: 20, presenceTtlSeconds: 60, sas: 'x' }),
     ],
     ['unknown error code', raw('error', { code: 'OOPS' })],
+    ['two-word name', raw('peer-joined', { peer: { peerId: ID2, displayName: 'Pixl Fox' } })],
     ['client-only type', raw('hello', { displayName: 'A', discoverable: true })],
     ['invalid display name', raw('peer-joined', { peer: { peerId: ID2, displayName: 'a‮b' } })],
   ])('%s is rejected', (_, text) => {
@@ -155,7 +157,7 @@ describe('server messages cannot assert trust', () => {
 });
 
 describe('isValidDisplayName (SD-05)', () => {
-  it.each(['A', 'Guest 4821', 'Bücher 📚', 'x'.repeat(32), '👨‍👩‍👧 family', 'مرحبا'])(
+  it.each(['A', 'Pixl', 'Voxel42', 'Bücher📚', 'x'.repeat(32), '👨‍👩‍👧family', 'مرحبا', 'Mar’s'])(
     'accepts %j',
     (name) => {
       expect(isValidDisplayName(name)).toBe(true);
@@ -172,6 +174,10 @@ describe('isValidDisplayName (SD-05)', () => {
     ['bidi isolate', 'a⁦b'],
     ['not NFC', 'Bücher'],
     ['lone surrogate', 'a\uD800b'],
+    ['two words', 'Pixl Fox'],
+    ['a tab', 'Pixl\tFox'],
+    ['a no-break space', 'Pixl\u00A0Fox'],
+    ['an ideographic space', 'Pixl\u3000Fox'],
   ])('rejects %s', (_, name) => {
     expect(isValidDisplayName(name)).toBe(false);
   });

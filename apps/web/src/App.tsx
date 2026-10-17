@@ -4,7 +4,13 @@ import { ConnectionPanel } from './features/connection/ConnectionPanel';
 import type { LinkSnapshot } from './features/connection/link';
 import { iceServers } from './features/connection/peer';
 import { RequestDialog } from './features/connection/RequestDialog';
-import { createDiscovery, randomDisplayName } from './features/presence/discovery';
+import {
+  createDiscovery,
+  forgetName,
+  rememberName,
+  storedName,
+} from './features/presence/discovery';
+import { NameControl } from './features/presence/NameControl';
 import { RoomControl } from './features/presence/RoomControl';
 import { createRoom, readRoom } from './features/presence/room';
 import { PeerDetails } from './features/radar/PeerDetails';
@@ -19,6 +25,7 @@ import { ThemeControl } from './features/settings/ThemeControl';
 import { useTheme } from './features/settings/theme';
 import { Button } from './ui/Button';
 import { LiveRegion } from './ui/LiveRegion';
+import { LockIcon } from './ui/LockIcon';
 import { SectionHeader } from './ui/SectionHeader';
 
 // Dev-only `?demo=` fixtures replace live discovery; production builds compile them out.
@@ -33,15 +40,13 @@ function peerState(link: LinkSnapshot, peerId: string): PeerState {
 
 export default function App() {
   const [theme, setTheme] = useTheme();
-  const [discoverable, setDiscoverable] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [displayName] = useState(randomDisplayName);
   const [badRoomLink, setBadRoomLink] = useState(false);
   const [discovery] = useState(() =>
     createDiscovery({
       url: import.meta.env.VITE_SIGNALING_URL as string | undefined,
-      displayName,
+      customName: storedName(),
       iceServers: iceServers(import.meta.env.VITE_STUN_URLS as string | undefined),
     }),
   );
@@ -75,10 +80,20 @@ export default function App() {
   const selected = peers.find((p) => p.id === selectedId) ?? null;
   const online = !demo && live.presence.status === 'online';
 
+  const { discoverable, name } = live;
   const changeVisibility = (next: boolean) => {
-    setDiscoverable(next);
     discovery.setDiscoverable(next);
     setAnnouncement(next ? 'You are now discoverable.' : 'You are now hidden.');
+  };
+  const rename = (next: string) => {
+    rememberName(next);
+    discovery.setDisplayName(next);
+    setAnnouncement(`You now appear as ${next}.`);
+  };
+  const randomName = () => {
+    forgetName();
+    discovery.randomName();
+    setAnnouncement('You now have a new random name.');
   };
   const enterRoom = async (create: boolean) => {
     const room = create ? await createRoom() : null;
@@ -108,7 +123,7 @@ export default function App() {
             Private file sharing, directly between browsers.
           </p>
           <p className="micro mt-4 text-[10px] text-gray-500">
-            In development · you appear as {displayName}
+            In development · you appear as {name}
           </p>
         </section>
 
@@ -124,6 +139,16 @@ export default function App() {
               onChange={changeVisibility}
             />
             {!demo && (
+              <NameControl
+                name={name}
+                custom={live.customName}
+                taken={live.presence.nameTaken}
+                busy={!['idle', 'ended'].includes(link.phase)}
+                onChange={rename}
+                onRandom={randomName}
+              />
+            )}
+            {!demo && (
               <RoomControl
                 room={live.room}
                 invalid={live.presence.roomInvalid || badRoomLink}
@@ -138,7 +163,15 @@ export default function App() {
               id="discovery-heading"
               index="02"
               title="discovery"
-              meta={live.room ? 'private room' : 'online lobby · not location-based'}
+              meta={
+                live.room ? (
+                  <>
+                    <LockIcon className="-mt-0.5 mr-1 size-3" /> private room
+                  </>
+                ) : (
+                  'online lobby · not location-based'
+                )
+              }
             />
             {live.presence.unavailable && (
               <div role="alert" className="mb-6 rounded-2xl border border-gray-300 p-5">
@@ -169,7 +202,12 @@ export default function App() {
                 <h3 className="micro text-[10px] text-gray-600">People</h3>
                 <span className="micro text-[10px] text-gray-500">{peers.length}</span>
               </div>
-              <PeerList peers={peers} selectedId={selectedId} onSelect={setSelectedId} />
+              <PeerList
+                peers={peers}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                locked={!!live.room}
+              />
             </div>
           </section>
         </div>
