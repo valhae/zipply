@@ -13,6 +13,9 @@ declare global {
   }
 }
 
+// GitHub-hosted WebKit offers only an mDNS host candidate that another page cannot resolve
+// (spike (f) on CI: connectionState stays 'new'). Safari needs real devices anyway (R11).
+const WEBKIT_CI = "CI WebKit cannot resolve another page's mDNS host candidate";
 const CHUNK = 65_536; // payload size at Chromium/Firefox maxMessageSize (P3-01)
 
 // Heavy (real WebRTC, SHA-256 of every chunk, up to 50 MiB): one at a time per file, longer timeout.
@@ -25,6 +28,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     !rtc,
     `${testInfo.project.name}: this Playwright build has no WebRTC (see PHASE_STATUS)`,
   );
+  test.skip(!!process.env.CI && testInfo.project.name === 'webkit-webrtc', WEBKIT_CI);
 });
 
 async function openTabs(page: Page) {

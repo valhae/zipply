@@ -14,6 +14,9 @@ declare global {
   }
 }
 
+// GitHub-hosted WebKit offers only an mDNS host candidate that another page cannot resolve
+// (spike (f) on CI: connectionState stays 'new'). Safari needs real devices anyway (R11).
+const WEBKIT_CI = "CI WebKit cannot resolve another page's mDNS host candidate";
 const SAS = '/src/features/connection/sas.ts';
 
 test.beforeEach(async ({ page }, testInfo) => {
@@ -229,7 +232,8 @@ test('(e) maxMessageSize is recorded and one full chunk frame arrives intact', a
 // Two separate pages (separate renderer processes), like the transfer harness. Non-trickle: each SDP
 // carries its gathered candidates. Logs only the *kind* of host address (mDNS name, IPv4, IPv6,
 // loopback), never an address, to explain environments where ICE cannot connect.
-test('(f) two pages connect; host-candidate kinds are recorded', async ({ page }) => {
+test('(f) two pages connect; host-candidate kinds are recorded', async ({ page }, testInfo) => {
+  test.skip(!!process.env.CI && testInfo.project.name === 'webkit-webrtc', WEBKIT_CI);
   const other = await page.context().newPage();
   await other.goto('/');
   const describeLocal = (p: Page, remote: RTCSessionDescriptionInit | null) =>
