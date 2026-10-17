@@ -137,7 +137,7 @@ Start-of-phase decisions (owner, 2026-10-17):
   - transfer spec → 6 passed;
   - `--project=chromium --workers=2` → 45 passed.
 - `npm run check` → exit 0: protocol 108, signaling 55, web 413.
-- The staging Worker and site must be redeployed to get these changes (the Worker changed: one-word rule and uniqueness).
+- **Redeployed by the owner** (commit `4049a56` on `phase-4-staging`): Vercel `https://zipply-delta.vercel.app` (200) and the staging Worker. Discovery e2e against the deployed site (temporary config, deleted) → **7 passed**. The duplicate-name test can only pass with the new Worker, which confirms the Worker redeploy.
 
 ## Phase 3 task log
 
