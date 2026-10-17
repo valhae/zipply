@@ -7,6 +7,14 @@ const ENGINES = [
   ['firefox', 'Desktop Firefox'],
   ['webkit', 'Desktop Safari'],
 ] as const;
+// On GitHub runners Firefox could not connect even within one page (2026-10-17); the likely cause is
+// unresolvable `.local` (mDNS) host candidates, so CI Firefox uses raw host IPs. Local runs keep
+// browser defaults, so the mDNS path stays covered there.
+const CI_FIREFOX = {
+  launchOptions: {
+    firefoxUserPrefs: { 'media.peerconnection.ice.obfuscate_host_addresses': false },
+  },
+};
 
 export default defineConfig({
   testDir: 'e2e',
@@ -21,7 +29,7 @@ export default defineConfig({
     { name, use: devices[device], testIgnore: WEBRTC },
     {
       name: `${name}-webrtc`,
-      use: devices[device],
+      use: { ...devices[device], ...(CI && name === 'firefox' ? CI_FIREFOX : {}) },
       testMatch: WEBRTC,
       workers: 1,
       dependencies: ENGINES.map(([ui]) => ui),
