@@ -1,50 +1,15 @@
-import { b64, exact, text, uint, type Check } from '../transfer/frames';
+import type { ClientMessage, IceCandidate } from '@zipply/protocol';
 import { commit, fromB64url, randomBytes, toB64url } from './sas';
 import { createSession, type Session } from './session';
 
-// Signaling payloads for one connection (SECURITY_DECISIONS SD-02 steps 1–2). SDP and candidates are
-// sensitive network metadata: never log, display or persist them.
-export interface IceCandidate {
-  candidate: string;
-  sdpMid: string | null;
-  sdpMLineIndex: number | null;
-  usernameFragment?: string | null;
-}
-export type Signal =
-  | { kind: 'offer'; connId: string; sdp: string; cO: string }
-  | { kind: 'answer'; connId: string; sdp: string; nA: string }
-  | { kind: 'ice'; connId: string; candidate: IceCandidate };
+/**
+ * Signaling messages for one connection (SD-02 steps 1–2), already validated at the WebSocket
+ * boundary by @zipply/protocol. SDP and candidates are sensitive network metadata: never log,
+ * display or persist them.
+ */
+export type Signal = Extract<ClientMessage, { type: 'offer' | 'answer' | 'ice-candidate' }>;
 
-const MAX_SDP = 16 * 1024;
-const MAX_CANDIDATE = 1024;
 const CONNECT_TIMEOUT_MS = 30_000;
-
-const nullable =
-  (check: Check): Check =>
-  (v) =>
-    v === null || check(v);
-const candidateShape = {
-  candidate: text(0, MAX_CANDIDATE),
-  sdpMid: nullable(text(0, 64)),
-  sdpMLineIndex: nullable((v) => uint(v) && (v as number) < 1024),
-};
-const candidate: Check = (v) =>
-  exact(candidateShape)(v) ||
-  exact({ ...candidateShape, usernameFragment: nullable(text(0, 256)) })(v);
-
-const SIGNALS: Record<Signal['kind'], Check> = {
-  offer: exact({ kind: () => true, connId: b64(16), sdp: text(1, MAX_SDP), cO: b64(32) }),
-  answer: exact({ kind: () => true, connId: b64(16), sdp: text(1, MAX_SDP), nA: b64(16) }),
-  ice: exact({ kind: () => true, connId: b64(16), candidate }),
-};
-
-/** Strict boundary check for a signaling message; null for anything else. */
-export function parseSignal(value: unknown): Signal | null {
-  if (typeof value !== 'object' || value === null) return null;
-  const kind = (value as { kind?: unknown }).kind;
-  if (typeof kind !== 'string' || !Object.hasOwn(SIGNALS, kind)) return null;
-  return SIGNALS[kind as Signal['kind']](value) ? (value as Signal) : null;
-}
 
 /** STUN servers from build-time config (SD-11); TURN and other schemes are ignored. */
 export function iceServers(value: string | undefined): RTCIceServer[] {
@@ -57,9 +22,13 @@ export function iceServers(value: string | undefined): RTCIceServer[] {
 
 export interface PeerOptions {
   role: 'offerer' | 'answerer';
+  /** The signaling request this connection belongs to; stamped on every outgoing signal. */
+  requestId: string;
   iceServers: RTCIceServer[];
   send: (signal: Signal) => void;
   onSession: (session: Session) => void;
+  /** The connection closed (failure, timeout or close()). */
+  onClosed?: () => void;
   files?: File[];
   receiveCap?: number;
 }
@@ -70,6 +39,7 @@ export interface PeerOptions {
  * closed, because renegotiation could change the DTLS fingerprints the SAS was computed from.
  */
 export function createPeer(o: PeerOptions) {
+  const { requestId } = o;
   const pc = new RTCPeerConnection({ iceServers: o.iceServers });
   const channel = pc.createDataChannel('zipply', { negotiated: true, id: 0, ordered: true });
   let connId: Uint8Array | null = o.role === 'offerer' ? randomBytes(16) : null;
@@ -92,18 +62,24 @@ export function createPeer(o: PeerOptions) {
     onClose: () => pc.close(),
   };
 
+  let closed = false;
   function close() {
     clearTimeout(timer);
     session?.lost();
     pc.close();
+    if (!closed) o.onClosed?.();
+    closed = true;
   }
 
   pc.addEventListener('icecandidate', ({ candidate }) => {
     if (!candidate || !connId) return;
     o.send({
-      kind: 'ice',
-      connId: toB64url(connId),
-      candidate: candidate.toJSON() as IceCandidate,
+      type: 'ice-candidate',
+      payload: {
+        requestId,
+        connId: toB64url(connId),
+        candidate: candidate.toJSON() as IceCandidate,
+      },
     });
   });
   pc.addEventListener('connectionstatechange', () => {
@@ -111,16 +87,17 @@ export function createPeer(o: PeerOptions) {
     if (pc.connectionState === 'failed') close();
   });
 
-  async function handle(signal: Signal) {
+  async function handle({ type, payload: signal }: Signal) {
+    if (signal.requestId !== requestId) return;
     const ownConn = connId !== null && signal.connId === toB64url(connId);
-    if (signal.kind === 'ice') {
+    if (type === 'ice-candidate') {
       if (ownConn && described) await pc.addIceCandidate(signal.candidate);
       return;
     }
     if (described) return close(); // renegotiation guard
     described = true;
 
-    if (signal.kind === 'offer' && o.role === 'answerer' && connId === null) {
+    if (type === 'offer' && o.role === 'answerer' && connId === null) {
       connId = fromB64url(signal.connId)!;
       const cO = fromB64url(signal.cO)!;
       await pc.setRemoteDescription({ type: 'offer', sdp: signal.sdp });
@@ -129,12 +106,15 @@ export function createPeer(o: PeerOptions) {
       session = createSession({ ...sessionOptions, role: 'answerer', secrets: { connId, cO, nA } });
       o.onSession(session);
       o.send({
-        kind: 'answer',
-        connId: signal.connId,
-        sdp: pc.localDescription!.sdp,
-        nA: toB64url(nA),
+        type: 'answer',
+        payload: {
+          requestId,
+          connId: signal.connId,
+          sdp: pc.localDescription!.sdp,
+          nA: toB64url(nA),
+        },
       });
-    } else if (signal.kind === 'answer' && o.role === 'offerer' && ownConn && pending) {
+    } else if (type === 'answer' && o.role === 'offerer' && ownConn && pending) {
       await pc.setRemoteDescription({ type: 'answer', sdp: signal.sdp });
       const { nO, cO } = pending;
       session = createSession({
@@ -157,10 +137,13 @@ export function createPeer(o: PeerOptions) {
       pending = { nO, cO };
       await pc.setLocalDescription();
       o.send({
-        kind: 'offer',
-        connId: toB64url(connId!),
-        sdp: pc.localDescription!.sdp,
-        cO: toB64url(cO),
+        type: 'offer',
+        payload: {
+          requestId,
+          connId: toB64url(connId!),
+          sdp: pc.localDescription!.sdp,
+          cO: toB64url(cO),
+        },
       });
     },
     /** Serialized so ICE candidates are never applied before the description they belong to. */

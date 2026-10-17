@@ -65,14 +65,19 @@ The threat model table in `Zipply_Project_Plan.md` §38.1 and the release-blocki
 
 ## SD-05 — Identifiers, expiry, replay protection, validation and rate limits
 
-- **Status:** Proposed (D2, D7, D12 pending explicit confirmation).
+- **Status:** Accepted (owner, 2026-10-17: D2 alarm sweep, D9 hand-written validators with fast-check property tests, D12 20 s / 60 s; D7: no per-IP limiting in Phase 4).
 - **Decision:**
   - `peerId`, `requestId`, `connId`, `transferId` and resume capabilities are 128-bit random values in base64url. The server assigns `peerId` and binds it to one socket. A display name never grants authority.
   - A private-room invite capability is 16 random bytes followed by a 4-byte expiry (epoch minutes). The route used in the WebSocket path is `base64url(SHA-256(capability))`. The capability itself travels only in the URL fragment (never sent to servers or in referrers) and in `hello`. The Durable Object verifies the preimage and the expiry, which makes the scheme stateless and unforgeable. Default expiry: 30 minutes.
   - A pending `connection-request` expires after 60 seconds. Offer, answer and ICE messages are routed only between the two parties of a live pending request, which is kept in socket attachments so it survives hibernation. One-time ids are consumed on use.
   - Strict validators reject unknown types, unknown fields, unsupported versions and oversized messages (64 KiB envelope, SDP ≤ 16 KiB, candidate ≤ 1 KiB). Display names that aren't NFC-normalized or that contain control/bidi characters are rejected; the limit is 32 characters.
   - Limits: a per-socket token bucket (stored in the attachment), a maximum number of sockets per room, at most 10 pending requests per socket, and a connection-request rate limit. Per-IP limits only if D7 is approved and the binding is confirmed available on the Free plan.
-- **Evidence:** P1-05 implements the envelope-level checks (version, shape, unknown top-level fields, size). Per-message schemas follow in P4-01.
+- **Evidence:** P1-05 implements the envelope-level checks (version, shape, unknown top-level fields, size).
+- **Evidence (Phase 4):**
+  - `packages/protocol/src/messages.test.ts` (100 tests in the package): every message type round-trips. Unknown types, extra keys (fast-check, 1,000 runs), non-canonical ids, oversized SDP and candidates, file-metadata fields in `connection-request` and server trust flags (`verified`) are all rejected. Display names follow the SD-05 rules (fast-check agreement test).
+  - `apps/signaling/test/room.test.ts`: random server-assigned peer ids. Requests to unknown, hidden or own ids answer `PEER_NOT_FOUND`. Signals are routed only within an accepted pair and in the right direction. A third party cannot use another pair's request id. Rejected, canceled and expired ids cannot be revived. A disconnect cancels the request for the other side. A flood is throttled without affecting others. Pending requests are capped at 10 and sockets at 100.
+  - Private rooms are admitted only with the matching, unexpired capability, and stay separate from the lobby.
+  - **Per-IP limits are not implemented (D7).** A single client can still open many sockets until the room cap (100) is reached. This quota/DoS risk stays residual (R2) until a staging deploy lets us check the Rate Limiting binding on the Free plan.
 
 ## SD-06 — Integrity scheme (integrity ≠ authentication)
 
@@ -110,7 +115,7 @@ The threat model table in `Zipply_Project_Plan.md` §38.1 and the release-blocki
 
 ## SD-10 — Durable Objects without storage records; liveness and lease sweep
 
-- **Status:** Proposed (D2, D12).
+- **Status:** Accepted (owner, 2026-10-17: D2, D12).
 - **Context (verified against Cloudflare docs on 2026-10-16):**
   - The Free plan includes 100,000 Durable Object requests/day and 13,000 GB-s/day of duration, billed at 128 MB per object.
   - Incoming WebSocket messages are billed at a 20:1 ratio. Outgoing messages are free, and `setWebSocketAutoResponse` replies incur no duration charge.
@@ -122,6 +127,18 @@ The threat model table in `Zipply_Project_Plan.md` §38.1 and the release-blocki
   - Heartbeats use auto-response ping/pong (20 s interval, 60 s TTL).
   - Stale peers are swept by `setAlarm()` used purely as a timer, every 60 s while the room is occupied. It stores no application records. This awaits D2; the alternative is a lazy sweep on wake, with a risk of lingering ghost peers.
   - Per-connection state that must survive hibernation lives in socket attachments (maximum 16,384 bytes each).
+- **Evidence (Phase 4, `apps/signaling/test/room.test.ts`, run in workerd):**
+  - After a full request/accept exchange, `state.storage.list()` returns 0 entries.
+  - The text `ping` is answered `pong` by auto-response.
+  - After `evictDurableObject` (simulated hibernation), presence and routing are rebuilt from live sockets: the new peer's snapshot still lists the earlier peer, and a request still reaches it.
+  - `runDurableObjectAlarm` closes a socket whose last activity is older than the TTL (code 4000, others told `peer-left`), and keeps a socket that pinged.
+  - ESLint bans `storage.get/put/delete/deleteAll/list/sql/kv/transaction/sync` in `apps/signaling/src`; a planted `ctx.storage.put` fails lint while `setAlarm` passes.
+  - Not verified without a deploy: real hibernation billing behaviour and quota use on Cloudflare (P4-10).
+- **Quota estimate for the Phase 4 design (Free plan: 100,000 Durable Object requests, 100,000 rows written and 13,000 GB-s per day):**
+  - **Alarm:** one per occupied room per minute, so a room occupied all day costs about 1,440 requests and 1,440 rows written. That is 1.4 % of each limit.
+  - **Joining:** about 1 request for the upgrade, plus 2–3 messages billed at 20:1.
+  - **One connection set-up:** request, response, offer, answer and ~20 ICE candidates, about 25 messages or ~1.3 requests.
+  - **Heartbeat:** a `ping` every 20 s per open tab, answered by auto-response, which adds no duration. **Unverified:** whether auto-response pings count towards the 20:1 request total. If they do, one tab open all day costs about 216 requests/day, and roughly 460 always-open tabs would use the daily allowance. If quota runs out, the app shows "Discovery temporarily unavailable" (P4-09) and never enables billing.
 - **Consequences:** A plain JSON heartbeat every 20 s would keep a room awake nearly all day (about 10,800 GB-s/day for one room). Free quotas are finite and can change, so quota exhaustion is handled as "Discovery temporarily unavailable", never by enabling billing.
 
 ## SD-11 — STUN provider
@@ -136,4 +153,5 @@ The threat model table in `Zipply_Project_Plan.md` §38.1 and the release-blocki
 | Date       | Change                                                                                                                                                   |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 2026-10-16 | Initial decisions recorded from the approved planning session (Phase 1, P1-02).                                                                          |
+| 2026-10-17 | Phase 4: SD-05 and SD-10 accepted (D2, D9, D12; D7 deferred) with signaling evidence.                                                                    |
 | 2026-10-17 | Phase 3: SD-02 accepted for Chromium/Firefox with P3-01 evidence (Safari unverified); SD-03 and SD-06 evidence added; SD-06 and SD-11 accepted (D5, D6). |

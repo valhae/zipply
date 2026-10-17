@@ -22,6 +22,13 @@ const rawHtmlSinks = [
   },
 ];
 
+// SD-10: Durable Objects keep no records. Only the alarm timer (getAlarm/setAlarm) is allowed.
+const noStorageRecords = {
+  selector:
+    "MemberExpression[object.property.name='storage'][property.name=/^(get|put|delete|deleteAll|list|sql|kv|transaction|transactionSync|sync)$/]",
+  message: 'Durable Object storage records are banned (SD-10); only setAlarm/getAlarm as a timer.',
+};
+
 // Runtime boundaries: browser code and Worker code never import each other; only @zipply/protocol is shared.
 const crossRuntime = (forbidden, message) => ({
   'no-restricted-imports': ['error', { patterns: [{ group: forbidden, message }] }],
@@ -56,6 +63,10 @@ export default tseslint.config(
       ['**/apps/signaling/**', '**/signaling/src/**', '@zipply/signaling', '@zipply/signaling/*'],
       'Browser code must not import Worker code; share via @zipply/protocol.',
     ),
+  },
+  {
+    files: ['apps/signaling/src/**'],
+    rules: { 'no-restricted-syntax': ['error', ...rawHtmlSinks, noStorageRecords] },
   },
   {
     files: ['apps/signaling/**'],

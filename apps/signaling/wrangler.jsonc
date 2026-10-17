@@ -9,4 +9,20 @@
   // Privacy: no Wrangler usage metrics, no Workers observability/log persistence by default.
   "send_metrics": false,
   "observability": { "enabled": false },
+  // One Room Durable Object per scope (public lobby or private room). Free-plan accounts can only
+  // create SQLite-backed classes; Room makes no SQL or key/value calls (lint-enforced, SD-10).
+  "durable_objects": { "bindings": [{ "name": "ROOM", "class_name": "Room" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  // ALLOWED_ORIGINS comes from .dev.vars locally; each deployed environment sets its own. Unset = reject all.
+  "env": {
+    // P4-10 staging (owner-approved 2026-10-17): its own Worker name, so production stays separate.
+    // Bindings and vars are not inherited by named environments, so they are repeated here.
+    "staging": {
+      "name": "zipply-signaling-staging",
+      "workers_dev": true,
+      "durable_objects": { "bindings": [{ "name": "ROOM", "class_name": "Room" }] },
+      // Local dev plus the approved test origin only (roadmap P4-10): the Vercel staging site.
+      "vars": { "ALLOWED_ORIGINS": "http://localhost:5173,https://zipply-delta.vercel.app" },
+    },
+  },
 }
