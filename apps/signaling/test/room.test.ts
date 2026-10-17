@@ -82,12 +82,25 @@ async function open(path = '/ws') {
   };
 }
 
-async function join(displayName: string, discoverable = true, path = '/ws', room?: string) {
+// Tests share the public lobby and names must be unique among visible peers, so every joined peer
+// gets a distinct one-word name (base + counter); assertions use the returned `name`.
+let seq = 0;
+async function join(base: string, discoverable = true, path = '/ws', room?: string) {
   const c = await open(path);
+  const displayName = `${base}${++seq}`;
   c.send({ type: 'hello', payload: { displayName, discoverable, ...(room ? { room } : {}) } });
   const accepted = await c.next('hello-accepted');
   const snapshot = await c.next('peer-snapshot');
-  return { ...c, peerId: accepted.payload.peerId, accepted, snapshot };
+  return { ...c, name: displayName, peerId: accepted.payload.peerId, accepted, snapshot };
+}
+
+/** Says hello with an exact name (no counter), for the uniqueness tests. */
+async function joinAs(displayName: string, discoverable: boolean) {
+  const c = await open();
+  c.send({ type: 'hello', payload: { displayName, discoverable } });
+  const accepted = await c.next('hello-accepted');
+  await c.next('peer-snapshot');
+  return { ...c, peerId: accepted.payload.peerId };
 }
 
 async function requestPair(path = '/ws', room?: string) {
@@ -122,12 +135,12 @@ describe('hello and presence (P4-03)', () => {
     expect(alice.peerId).not.toBe(hidden.peerId);
     const bob = await join('Bob');
     const names = bob.snapshot.payload.peers.map((p) => p.displayName);
-    expect(names).toContain('Alice');
-    expect(names).not.toContain('Hidden');
-    expect(names).not.toContain('Bob');
+    expect(names).toContain(alice.name);
+    expect(names).not.toContain(hidden.name);
+    expect(names).not.toContain(bob.name);
     expect((await alice.next('peer-joined')).payload.peer).toEqual({
       peerId: bob.peerId,
-      displayName: 'Bob',
+      displayName: bob.name,
     });
     await hidden.next('peer-joined'); // invisible peers still see others
   });
@@ -235,7 +248,7 @@ describe('connection requests and signal routing (P4-04)', () => {
     expect(incoming.payload).toEqual({
       requestId,
       fromPeerId: a.peerId,
-      displayName: 'Alice',
+      displayName: a.name,
       expiresAt: expect.any(Number),
     });
     expect(incoming.payload.expiresAt - Date.now()).toBeGreaterThan(50_000);
@@ -391,5 +404,52 @@ describe('private rooms (P4-06)', () => {
     const c = await open('/ws');
     c.send({ type: 'hello', payload: { displayName: 'X', discoverable: true, room } });
     expect((await c.next('error')).payload.code).toBe('ROOM_INVALID');
+  });
+});
+
+describe('unique names among visible peers (owner request, 2026-10-17)', () => {
+  const unique = () => `Pixl${++seq}`;
+
+  it('keeps a second visible peer with the same name (any case) hidden and says NAME_TAKEN', async () => {
+    const name = unique();
+    const watcher = await join('Watcher', false);
+    const first = await joinAs(name, true);
+    await watcher.next('peer-joined');
+    const second = await joinAs(name.toUpperCase(), true);
+    expect((await second.next('error')).payload.code).toBe('NAME_TAKEN');
+    await watcher.quiet('peer-joined');
+    expect(second.closeCode()).toBeNull(); // still connected and can see others
+    expect(first.closeCode()).toBeNull();
+  });
+
+  it('lets hidden peers share a name but refuses to make a duplicate visible', async () => {
+    const name = unique();
+    const watcher = await join('Watcher', false);
+    await joinAs(name, true);
+    await watcher.next('peer-joined');
+    const hidden = await joinAs(name, false);
+    await hidden.quiet('error');
+    hidden.send({ type: 'visibility', payload: { discoverable: true } });
+    expect((await hidden.next('error')).payload.code).toBe('NAME_TAKEN');
+    await watcher.quiet('peer-joined');
+  });
+
+  it('frees the name when its holder hides', async () => {
+    const name = unique();
+    const watcher = await join('Watcher', false);
+    const first = await joinAs(name, true);
+    await watcher.next('peer-joined');
+    first.send({ type: 'visibility', payload: { discoverable: false } });
+    await watcher.next('peer-left');
+    const second = await joinAs(name, true);
+    await second.quiet('error');
+    expect((await watcher.next('peer-joined')).payload.peer.displayName).toBe(name);
+  });
+
+  it('never reveals hidden peers: a visible name equal to a hidden one is accepted', async () => {
+    const name = unique();
+    await joinAs(name, false);
+    const visible = await joinAs(name, true);
+    await visible.quiet('error');
   });
 });

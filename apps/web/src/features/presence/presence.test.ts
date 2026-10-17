@@ -48,7 +48,7 @@ const last = () => FakeSocket.all.at(-1)!;
 const start = (over: Partial<PresenceOptions> = {}) =>
   createPresence({
     url: 'wss://signal.example/ws',
-    displayName: 'Guest 1234',
+    displayName: 'Pixl12',
     discoverable: false,
     WebSocket: FakeSocket as unknown as typeof WebSocket,
     random: () => 0.5,
@@ -104,7 +104,7 @@ describe('presence client', () => {
     welcome(last());
     expect(last().messages[0]).toEqual({
       type: 'hello',
-      payload: { displayName: 'Guest 1234', discoverable: false },
+      payload: { displayName: 'Pixl12', discoverable: false },
     });
     expect(p.getSnapshot()).toMatchObject({
       status: 'online',
@@ -252,5 +252,17 @@ describe('presence client', () => {
     vi.advanceTimersByTime(120_000);
     expect(FakeSocket.all).toHaveLength(1);
     expect(p.getSnapshot().status).toBe('offline');
+  });
+
+  it('reports NAME_TAKEN and clears it on the next visibility attempt or connection', () => {
+    const p = start({ discoverable: true });
+    welcome(last());
+    last().receive({ type: 'error', payload: { code: 'NAME_TAKEN' } });
+    expect(p.getSnapshot().nameTaken).toBe(true);
+    p.setDiscoverable(true);
+    expect(p.getSnapshot().nameTaken).toBe(false);
+    last().receive({ type: 'error', payload: { code: 'NAME_TAKEN' } });
+    last().drop();
+    expect(p.getSnapshot().nameTaken).toBe(false);
   });
 });

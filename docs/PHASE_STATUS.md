@@ -1,15 +1,15 @@
 # Phase status
 
-| #   | Phase                                                                    | Status                                                                    | Approved by user                                                          | Exit evidence                                                                     |
-| --- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| 1   | Project foundation and development tooling                               | COMPLETE                                                                  | 2026-10-16                                                                | Phase 1 evidence below; CI green on GitHub (run for `5f2ce91`)                    |
-| 2   | Responsive UI/UX and radar interface                                     | COMPLETE                                                                  | 2026-10-16 (start); accepted 2026-10-17 when the owner authorized Phase 3 | Phase 2 evidence below; committed by the owner as `40105b3` (`phase-2-ui`)        |
-| 3   | Core WebRTC file transfer                                                | COMPLETE                                                                  | 2026-10-17 (start); accepted 2026-10-17 when the owner authorized Phase 4 | Phase 3 evidence below; GitHub CI green on `phase-3-transfer`                     |
-| 4   | Online device discovery using Cloudflare                                 | ACTIVE — INCOMPLETE (only P4-10 staging deploy remains; not approved yet) | 2026-10-17 (start)                                                        | Phase 4 evidence below (uncommitted, on `phase-3-transfer`); full local e2e green |
-| 5   | Security, peer authentication, and receiver consent                      | NOT STARTED                                                               | —                                                                         | —                                                                                 |
-| 6   | Large-file optimization, integrity verification, and resumable transfers | NOT STARTED                                                               | —                                                                         | —                                                                                 |
-| 7   | Offline QR/manual pairing and offline website caching                    | NOT STARTED                                                               | —                                                                         | —                                                                                 |
-| 8   | Comprehensive testing, performance optimization, and release readiness   | NOT STARTED                                                               | —                                                                         | —                                                                                 |
+| #   | Phase                                                                    | Status                                                             | Approved by user                                                          | Exit evidence                                                              |
+| --- | ------------------------------------------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 1   | Project foundation and development tooling                               | COMPLETE                                                           | 2026-10-16                                                                | Phase 1 evidence below; CI green on GitHub (run for `5f2ce91`)             |
+| 2   | Responsive UI/UX and radar interface                                     | COMPLETE                                                           | 2026-10-16 (start); accepted 2026-10-17 when the owner authorized Phase 3 | Phase 2 evidence below; committed by the owner as `40105b3` (`phase-2-ui`) |
+| 3   | Core WebRTC file transfer                                                | COMPLETE                                                           | 2026-10-17 (start); accepted 2026-10-17 when the owner authorized Phase 4 | Phase 3 evidence below; GitHub CI green on `phase-3-transfer`              |
+| 4   | Online device discovery using Cloudflare                                 | ACTIVE — INCOMPLETE (P4-10: two-device cross-network test pending) | 2026-10-17 (start)                                                        | Phase 4 evidence below; staging live at zipply-delta.vercel.app            |
+| 5   | Security, peer authentication, and receiver consent                      | NOT STARTED                                                        | —                                                                         | —                                                                          |
+| 6   | Large-file optimization, integrity verification, and resumable transfers | NOT STARTED                                                        | —                                                                         | —                                                                          |
+| 7   | Offline QR/manual pairing and offline website caching                    | NOT STARTED                                                        | —                                                                         | —                                                                          |
+| 8   | Comprehensive testing, performance optimization, and release readiness   | NOT STARTED                                                        | —                                                                         | —                                                                          |
 
 ## Phase 4 task log
 
@@ -23,18 +23,18 @@ Start-of-phase decisions (owner, 2026-10-17):
 - P4-10: staging deploy "not yet".
 - D12: the spec §17 defaults (20 s / 60 s) were applied as recommended.
 
-| Task  | Status       | Notes/limits                                                                                                                                                                                                                                                                 |
-| ----- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P4-01 | DONE         | `packages/protocol/src/messages.ts`: strict client and server schemas (C2 split: `discoverable` boolean; scope via the route). `offer` carries `cO`, `answer` carries `nA`; no file-metadata field exists. `envelope.ts` split out to avoid a circular import                |
-| P4-02 | DONE         | `apps/signaling/src/index.ts`: exact Origin allowlist (unset = reject all), GET + upgrade required, path `/ws` or `/ws/<canonical 43-char hash>`; the room receives only the upgrade and the hash                                                                            |
-| P4-03 | DONE         | `apps/signaling/src/room.ts`: hibernation API, attachment-only state, auto-response `ping`/`pong`, 60 s alarm sweep, `new_sqlite_classes` migration, no storage records (lint-enforced)                                                                                      |
-| P4-04 | DONE         | Requests only to discoverable peers; signals only within an accepted pair, in the right direction, for 60 s; one-time ids; disconnect cancels                                                                                                                                |
-| P4-05 | DONE         | Token bucket (40 burst, 5/s), room cap 100 (`SERVER_BUSY`, 1013), pending cap 10, 64 KiB messages; per-IP not implemented (D7)                                                                                                                                               |
-| P4-06 | DONE         | Capability in the URL fragment, route = SHA-256 hash, expiry checked on join; create, copy and leave UI; expired links explained                                                                                                                                             |
-| P4-07 | DONE         | `apps/web/src/features/presence/presence.ts`: hello, snapshot, joins and leaves, heartbeat, backoff + jitter, strict parsing; the build fails on `ws://` to a non-localhost host                                                                                             |
-| P4-08 | DONE         | `connection/link.ts` (request flow) and `presence/discovery.ts`, wired into App: live radar and list, request with files, incoming-request dialog, connection panel. The dev harness was removed; transfer e2e now uses the real signaling path; full three-engine e2e green |
-| P4-09 | DONE         | "Discovery temporarily unavailable" after 3 failed attempts or `SERVER_BUSY`, with Retry; quota estimate in SD-10                                                                                                                                                            |
-| P4-10 | NOT VERIFIED | Not approved yet (owner decision); needs your Cloudflare account and an approved test origin                                                                                                                                                                                 |
+| Task  | Status      | Notes/limits                                                                                                                                                                                                                                                                 |
+| ----- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P4-01 | DONE        | `packages/protocol/src/messages.ts`: strict client and server schemas (C2 split: `discoverable` boolean; scope via the route). `offer` carries `cO`, `answer` carries `nA`; no file-metadata field exists. `envelope.ts` split out to avoid a circular import                |
+| P4-02 | DONE        | `apps/signaling/src/index.ts`: exact Origin allowlist (unset = reject all), GET + upgrade required, path `/ws` or `/ws/<canonical 43-char hash>`; the room receives only the upgrade and the hash                                                                            |
+| P4-03 | DONE        | `apps/signaling/src/room.ts`: hibernation API, attachment-only state, auto-response `ping`/`pong`, 60 s alarm sweep, `new_sqlite_classes` migration, no storage records (lint-enforced)                                                                                      |
+| P4-04 | DONE        | Requests only to discoverable peers; signals only within an accepted pair, in the right direction, for 60 s; one-time ids; disconnect cancels                                                                                                                                |
+| P4-05 | DONE        | Token bucket (40 burst, 5/s), room cap 100 (`SERVER_BUSY`, 1013), pending cap 10, 64 KiB messages; per-IP not implemented (D7)                                                                                                                                               |
+| P4-06 | DONE        | Capability in the URL fragment, route = SHA-256 hash, expiry checked on join; create, copy and leave UI; expired links explained                                                                                                                                             |
+| P4-07 | DONE        | `apps/web/src/features/presence/presence.ts`: hello, snapshot, joins and leaves, heartbeat, backoff + jitter, strict parsing; the build fails on `ws://` to a non-localhost host                                                                                             |
+| P4-08 | DONE        | `connection/link.ts` (request flow) and `presence/discovery.ts`, wired into App: live radar and list, request with files, incoming-request dialog, connection panel. The dev harness was removed; transfer e2e now uses the real signaling path; full three-engine e2e green |
+| P4-09 | DONE        | "Discovery temporarily unavailable" after 3 failed attempts or `SERVER_BUSY`, with Retry; quota estimate in SD-10                                                                                                                                                            |
+| P4-10 | IN PROGRESS | Owner approved and ran the deploys on 2026-10-17: staging Worker and Vercel site live and verified (below); the two-device cross-network test is still to do                                                                                                                 |
 
 ### Phase 4 evidence (exact commands → actual results)
 
@@ -76,6 +76,68 @@ Start-of-phase decisions (owner, 2026-10-17):
 - `npm audit --audit-level=high` → 0 vulnerabilities (`fast-check` 4.10.2, MIT, dev only).
 - `gitleaks dir --redact --exit-code 1 apps packages e2e playwright.config.ts docs` → no leaks found.
 - grep for `console.` / `debugger` in signaling, presence, connection and protocol sources (tests excluded) → no matches.
+
+### P4-10 staging deploy (owner-approved and owner-run, 2026-10-17)
+
+- **Worker deploy:** the owner ran `npx wrangler login` and `npx wrangler deploy --env staging`. This registered the `workers.dev` subdomain `valhae`; the Worker is at `https://zipply-signaling-staging.valhae.workers.dev`. It is a separate Worker (`env.staging` in `wrangler.jsonc`), on the Free plan, with no billing prompt.
+- **Allowlist:** staging `ALLOWED_ORIGINS` = `http://localhost:5173,https://zipply-delta.vercel.app` (local development plus the approved test origin).
+- **Frontend deploy:** the owner ran `npx vercel link` (project `zipply`, Root Directory `apps/web`, Vite) and `npx vercel deploy --prod -b VITE_SIGNALING_URL=wss://…/ws -b VITE_STUN_URLS=stun:stun.cloudflare.com:3478`. Result: `https://zipply-delta.vercel.app`, public 200. The per-deploy URL redirects to Vercel login (Deployment Protection).
+  - GitHub auto-deploy failed to connect (the Vercel GitHub app has no access to the repo), so deploys are manual only.
+  - `vercel link` created `.env.local` (a Vercel OIDC token; ignored by git, and excluded from uploads by the new `.vercelignore`). It also appended `.env*` to `.gitignore`, which would have hidden `.env.example`; that was reverted.
+- **Found and fixed:** `workers.dev` also serves the Worker over plain HTTP, so an unencrypted `ws://` upgrade was possible. The Worker now answers `403 HTTPS required` for non-HTTPS requests to `/ws`, except localhost (TDD: failed first, then signaling 51/51). Redeployed.
+- **Live checks (curl from the test machine, after the redeploy):**
+  - `/healthz` → 200 `{"status":"ok","protocolVersion":1}`, `Cache-Control: no-store`.
+  - `wss` upgrade with Origin `https://zipply-delta.vercel.app` → 101, `http://localhost:5173` → 101.
+  - Look-alike origin → 403; the protected per-deploy Vercel origin → 403; no Origin → 403.
+  - Plaintext `ws://` from the allowed origin → 403; `/ws` without upgrade → 426; `/upload` → 404.
+  - First HTTPS attempt failed the TLS handshake for ~20 s while the new subdomain's certificate was provisioned, then worked.
+- **Built site:** contains `wss://zipply-signaling-staging.valhae.workers.dev/ws` and the Cloudflare STUN URL, and no `ws://localhost`.
+- **e2e against the real Cloudflare Worker** (temporary Playwright configs, deleted after use; Chromium, one worker):
+  - local page → staging Worker: 11 passed (discovery 5, transfer 6).
+  - deployed page `https://zipply-delta.vercel.app` → staging Worker: 11 passed, including 50 MiB byte-exact in 10.8 s.
+  - Both pages ran on one machine.
+- **Still to do:** the two-device test on different networks (phone on mobile data, laptop on Wi-Fi).
+
+### Owner requests after the staging test (2026-10-17)
+
+- **Editable display name** (`presence/NameControl.tsx`; `storedName`/`rememberName`/`setDisplayName` in `presence/discovery.ts`):
+  - Trimmed, NFC-normalized and checked with the same `isValidDisplayName` the server uses.
+  - Kept in `localStorage` on this device only (try/catch if storage is blocked).
+  - A rename reconnects (the name is part of `hello`, so there is no protocol change). It is disabled while a connection or transfer is in progress.
+- **Automatic saving of received files** (`transfer/TransferView.tsx`): after Accept files and successful verification, each file is saved once, on the receiving side only. The Save links remain as a fallback. Recorded in SD-06 as an owner decision (replaces spec §23 step 7).
+- **TDD:**
+  - rename and name storage: 6 failed, then 10 passed;
+  - NameControl: 6 failed, then passed;
+  - auto-save: 1 failed (the sender case passed trivially as a regression guard), then passed.
+- **e2e:**
+  - transfer helper now collects downloads the page starts itself, with no clicks: `npx playwright test e2e/transfer.spec.ts --project=chromium-webrtc --no-deps` → 6 passed (5-file and 50 MiB transfers saved automatically, byte-exact);
+  - new rename test: `npx playwright test e2e/discovery.spec.ts --project=chromium` → 6 passed;
+  - `--project=chromium --workers=2` → 44 passed (layout and axe included).
+- `npm run check` → exit 0: protocol 100, signaling 51, web 403.
+- Not done: QR pairing, which remains P7-04 (Phase 7).
+
+### Owner requests, round 2 (2026-10-17)
+
+- **Names:**
+  - One-word pixel-style auto names, new each visit (`randomPixelName`, e.g. `Voxl27`; 40 bases × 90 numbers).
+  - A custom name the user types is kept on this device, with a **Random name** button to go back.
+  - Names are one word, enforced by the protocol and the server.
+  - Unique among visible peers in a scope, with the new `NAME_TAKEN` code. An auto name that is taken retries itself (up to 5 times). A taken custom name keeps the user hidden with an explanation.
+- **Lock icon:** next to every person in the list while in a private room (with screen-reader text "Private room:"); also on the room card and in the discovery header.
+- **Verification change:** decided as D19 for Phase 5, not built now. The proposed in-app check was explained to the owner as insecure; the secure mutual spoken-and-typed design was chosen instead.
+- **TDD (RED observed before GREEN):**
+  - protocol: 5 failed, then 108 passed;
+  - room uniqueness: 2 failed, then 55 passed (the helper now gives each test peer a unique name because tests share the lobby);
+  - presence `nameTaken`: 1 failed, then 26 passed;
+  - discovery: 9 failed, then 14 passed;
+  - NameControl: 7 failed, then 9 passed;
+  - lock: 1 failed, then 21 passed.
+- **e2e:**
+  - `npx playwright test e2e/discovery.spec.ts --project=chromium` → 7 passed (new: duplicate name stays hidden with a message, seen once by an observer page; lock icon in a room);
+  - transfer spec → 6 passed;
+  - `--project=chromium --workers=2` → 45 passed.
+- `npm run check` → exit 0: protocol 108, signaling 55, web 413.
+- **Redeployed by the owner** (commit `4049a56` on `phase-4-staging`): Vercel `https://zipply-delta.vercel.app` (200) and the staging Worker. Discovery e2e against the deployed site (temporary config, deleted) → **7 passed**. The duplicate-name test can only pass with the new Worker, which confirms the Worker redeploy.
 
 ## Phase 3 task log
 
@@ -329,28 +391,29 @@ Environment for Phase 1 evidence unless stated: Windows 11 Home 10.0.26300, Node
 
 ## Decisions log
 
-| ID  | Decision                                                                                          | Date       | Status                                                                                                       |
-| --- | ------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------ |
-| —   | Initial roadmap and Phase 1 scope approved                                                        | 2026-10-16 | APPROVED by owner                                                                                            |
-| D1  | License: MIT; copyright holder `valhae` (owner name updated 2026-10-16)                           | 2026-10-16 | APPROVED by owner                                                                                            |
-| —   | Local git commits on a phase branch are allowed; no remote, no push                               | 2026-10-16 | APPROVED by owner                                                                                            |
-| D2  | `ctx.storage.setAlarm()` used only as a timer for the lease sweep                                 | 2026-10-17 | APPROVED by owner; implemented in P4-03                                                                      |
-| D3  | SAS v1 commit-then-reveal, six words                                                              | 2026-10-17 | APPROVED by owner (recommended option); evidence in SD-02                                                    |
-| D4  | New DTLS association → fresh SAS; `restartIce()` first                                            | —          | PROPOSED (needed by P6-05)                                                                                   |
-| D5  | Integrity: per-chunk SHA-256 + digest-list root + read-back, no new dependency                    | 2026-10-17 | APPROVED by owner (recommended option); read-back in P6-02                                                   |
-| D6  | STUN: `stun.cloudflare.com:3478` via `VITE_STUN_URLS`                                             | 2026-10-17 | APPROVED by owner (recommended option); free status confirmed in Cloudflare's FAQ                            |
-| D7  | Per-IP rate limiting via the Workers Rate Limiting binding                                        | 2026-10-17 | Owner: not in Phase 4 (Free-plan availability unconfirmed in Cloudflare docs); revisit with a staging deploy |
-| D8  | Shared `packages/protocol` workspace consumed as TS source                                        | 2026-10-16 | APPLIED in Phase 1 as part of the approved roadmap (P1-05)                                                   |
-| D9  | Hand-written strict validators (no runtime dependency) + fast-check for property tests (dev only) | 2026-10-17 | APPROVED by owner; applied in P4-01                                                                          |
-| D10 | SAS wordlist: BIP-39 English                                                                      | 2026-10-17 | APPROVED by owner (recommended option); licence MIT (BIP-39 header); file hash verified                      |
-| D11 | Fonts: self-host Geist + Geist Mono + Geist Pixel Square (OFL confirmed); no Source Serif 4       | 2026-10-16 | APPROVED by owner; applied in P2-02                                                                          |
-| D12 | Heartbeat 20 s / TTL 60 s via auto-response ping                                                  | 2026-10-17 | APPLIED (spec §17 defaults, as recommended; owner may change)                                                |
-| D13 | First public tag `v0.1.0`                                                                         | —          | PROPOSED (needed by P8-07)                                                                                   |
-| D14 | External actions approved individually (GitHub repo, staging Worker, Vercel, PSI key)             | —          | STANDING RULE; none approved yet                                                                             |
-| D15 | Cross-phase parallelism                                                                           | —          | Default: strict sequence                                                                                     |
-| D16 | Available test devices                                                                            | —          | OPEN — owner to list                                                                                         |
-| D17 | `Zipply_Project_Plan.md` unchanged; conflicts resolved in docs                                    | 2026-10-16 | APPLIED (spec untouched, verified by `git diff 903414e HEAD`)                                                |
-| D18 | Independent review of SAS design before public release                                            | —          | PROPOSED                                                                                                     |
+| ID  | Decision                                                                                                           | Date       | Status                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------ |
+| —   | Initial roadmap and Phase 1 scope approved                                                                         | 2026-10-16 | APPROVED by owner                                                                                            |
+| D1  | License: MIT; copyright holder `valhae` (owner name updated 2026-10-16)                                            | 2026-10-16 | APPROVED by owner                                                                                            |
+| —   | Local git commits on a phase branch are allowed; no remote, no push                                                | 2026-10-16 | APPROVED by owner                                                                                            |
+| D2  | `ctx.storage.setAlarm()` used only as a timer for the lease sweep                                                  | 2026-10-17 | APPROVED by owner; implemented in P4-03                                                                      |
+| D3  | SAS v1 commit-then-reveal, six words                                                                               | 2026-10-17 | APPROVED by owner (recommended option); evidence in SD-02                                                    |
+| D4  | New DTLS association → fresh SAS; `restartIce()` first                                                             | —          | PROPOSED (needed by P6-05)                                                                                   |
+| D5  | Integrity: per-chunk SHA-256 + digest-list root + read-back, no new dependency                                     | 2026-10-17 | APPROVED by owner (recommended option); read-back in P6-02                                                   |
+| D6  | STUN: `stun.cloudflare.com:3478` via `VITE_STUN_URLS`                                                              | 2026-10-17 | APPROVED by owner (recommended option); free status confirmed in Cloudflare's FAQ                            |
+| D7  | Per-IP rate limiting via the Workers Rate Limiting binding                                                         | 2026-10-17 | Owner: not in Phase 4 (Free-plan availability unconfirmed in Cloudflare docs); revisit with a staging deploy |
+| D8  | Shared `packages/protocol` workspace consumed as TS source                                                         | 2026-10-16 | APPLIED in Phase 1 as part of the approved roadmap (P1-05)                                                   |
+| D9  | Hand-written strict validators (no runtime dependency) + fast-check for property tests (dev only)                  | 2026-10-17 | APPROVED by owner; applied in P4-01                                                                          |
+| D10 | SAS wordlist: BIP-39 English                                                                                       | 2026-10-17 | APPROVED by owner (recommended option); licence MIT (BIP-39 header); file hash verified                      |
+| D11 | Fonts: self-host Geist + Geist Mono + Geist Pixel Square (OFL confirmed); no Source Serif 4                        | 2026-10-16 | APPROVED by owner; applied in P2-02                                                                          |
+| D12 | Heartbeat 20 s / TTL 60 s via auto-response ping                                                                   | 2026-10-17 | APPLIED (spec §17 defaults, as recommended; owner may change)                                                |
+| D13 | First public tag `v0.1.0`                                                                                          | —          | PROPOSED (needed by P8-07)                                                                                   |
+| D14 | External actions approved individually (GitHub repo, staging Worker, Vercel, PSI key)                              | —          | STANDING RULE; none approved yet                                                                             |
+| D15 | Cross-phase parallelism                                                                                            | —          | Default: strict sequence                                                                                     |
+| D16 | Available test devices                                                                                             | —          | OPEN — owner to list                                                                                         |
+| D17 | `Zipply_Project_Plan.md` unchanged; conflicts resolved in docs                                                     | 2026-10-16 | APPLIED (spec untouched, verified by `git diff 903414e HEAD`)                                                |
+| D18 | Independent review of SAS design before public release                                                             | —          | PROPOSED                                                                                                     |
+| D19 | Verification UX: mutual spoken-and-typed 3-word check, each device checks only what its own user typed (see SD-02) | 2026-10-17 | APPROVED by owner for Phase 5; the in-app answer check was rejected as insecure                              |
 
 ## Open risks
 

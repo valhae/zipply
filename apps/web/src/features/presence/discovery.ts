@@ -1,3 +1,4 @@
+import { isValidDisplayName } from '@zipply/protocol';
 import { IDLE_LINK, createLink, type Link, type LinkSnapshot } from '../connection/link';
 import { OFFLINE, createPresence, type Presence, type PresenceSnapshot } from './presence';
 import type { Room } from './room';
@@ -6,17 +7,98 @@ export interface DiscoverySnapshot {
   presence: PresenceSnapshot;
   link: LinkSnapshot;
   room: Room | null;
+  /** The name others see: a fresh auto name each visit, or one the user chose. */
+  name: string;
+  customName: boolean;
+  discoverable: boolean;
 }
 
 interface Options {
   url: string | undefined;
-  displayName: string;
+  /** A name the user chose earlier (kept on this device); null for a fresh auto name. */
+  customName: string | null;
   iceServers: RTCIceServer[];
   WebSocket?: typeof WebSocket;
 }
 
-export const randomDisplayName = () =>
-  `Guest ${String(crypto.getRandomValues(new Uint32Array(1))[0]! % 10_000).padStart(4, '0')}`;
+const NAME_KEY = 'zipply-name';
+
+/** A name the user chose earlier on this device; null if none, invalid or storage is blocked. */
+export function storedName(): string | null {
+  try {
+    const name = localStorage.getItem(NAME_KEY);
+    return name !== null && isValidDisplayName(name) ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberName(name: string) {
+  try {
+    localStorage.setItem(NAME_KEY, name);
+  } catch {
+    // storage blocked: the name still applies for this visit
+  }
+}
+
+export function forgetName() {
+  try {
+    localStorage.removeItem(NAME_KEY);
+  } catch {
+    // storage blocked: nothing was kept
+  }
+}
+
+// One-word, pixel-flavoured auto names: a base plus two digits (40 × 90 = 3,600 combinations).
+const BASES = [
+  'Pixl',
+  'Voxl',
+  'Bitz',
+  'Blip',
+  'Zapp',
+  'Glyf',
+  'Dotz',
+  'Chip',
+  'Nibl',
+  'Rezz',
+  'Lumo',
+  'Moxi',
+  'Fizz',
+  'Tekk',
+  'Flux',
+  'Kilo',
+  'Byte',
+  'Nano',
+  'Pico',
+  'Mega',
+  'Zigg',
+  'Quix',
+  'Jinx',
+  'Pong',
+  'Blox',
+  'Krux',
+  'Vexx',
+  'Pyxl',
+  'Hexa',
+  'Octo',
+  'Cubi',
+  'Grid',
+  'Lynx',
+  'Arca',
+  'Zeno',
+  'Koda',
+  'Yoxi',
+  'Dash',
+  'Bolt',
+  'Spry',
+];
+/** A fresh auto name such as "Voxl27"; a new one every visit so it never works as a tracking ID. */
+export function randomPixelName(): string {
+  const [a, b] = crypto.getRandomValues(new Uint32Array(2));
+  return `${BASES[a! % BASES.length]}${10 + (b! % 90)}`;
+}
+
+const MAX_AUTO_RETRIES = 5;
 
 /**
  * Owns the presence connection and the connection-request flow for the current scope (lobby or a
@@ -30,10 +112,35 @@ export function createDiscovery(o: Options) {
   let unsubscribe: (() => void)[] = [];
   let room: Room | null = null;
   let discoverable = false;
-  let snap: DiscoverySnapshot = { presence: OFFLINE, link: IDLE_LINK, room };
+  let name = o.customName ?? randomPixelName();
+  let customName = o.customName !== null;
+  let handledTaken = false;
+  let autoRetries = 0;
+  const snapshot = (p: PresenceSnapshot, l: LinkSnapshot): DiscoverySnapshot => ({
+    presence: p,
+    link: l,
+    room,
+    name,
+    customName,
+    discoverable,
+  });
+  let snap = snapshot(OFFLINE, IDLE_LINK);
 
   const refresh = () => {
-    snap = { presence: presence!.getSnapshot(), link: link!.getSnapshot(), room };
+    const p = presence!.getSnapshot();
+    if (p.nameTaken && !handledTaken) {
+      handledTaken = true;
+      // An auto name just picks another; a chosen name stays, hidden, until the user changes it.
+      if (!customName && autoRetries < MAX_AUTO_RETRIES) {
+        autoRetries++;
+        name = randomPixelName();
+        return start();
+      }
+      discoverable = false;
+    }
+    if (!p.nameTaken) handledTaken = false;
+    if (p.status === 'online' && !p.nameTaken) autoRetries = 0;
+    snap = snapshot(p, link!.getSnapshot());
     listeners.forEach((fn) => fn());
   };
 
@@ -49,7 +156,7 @@ export function createDiscovery(o: Options) {
     stop();
     presence = createPresence({
       url: o.url,
-      displayName: o.displayName,
+      displayName: name,
       discoverable,
       WebSocket: o.WebSocket,
       ...(room ? { room: { capability: room.capability, hash: room.hash } } : {}),
@@ -70,12 +177,28 @@ export function createDiscovery(o: Options) {
     setDiscoverable(next: boolean) {
       discoverable = next;
       presence?.setDiscoverable(next);
+      snap = { ...snap, discoverable };
+      listeners.forEach((fn) => fn());
     },
     /** Switches between the public lobby (null) and a private room; reconnects if running. */
     setRoom(next: Room | null) {
       room = next;
       if (presence) start();
       else snap = { ...snap, room };
+    },
+    /** The name is part of hello, so a rename reconnects. Callers block it during a connection. */
+    setDisplayName(next: string) {
+      name = next;
+      customName = true;
+      if (presence) start();
+      else snap = { ...snap, name, customName };
+    },
+    /** Back to a fresh auto name. */
+    randomName() {
+      name = randomPixelName();
+      customName = false;
+      if (presence) start();
+      else snap = { ...snap, name, customName };
     },
     retry: () => presence?.retry(),
     request: (peerId: string, name: string, files: File[]) => link?.request(peerId, name, files),

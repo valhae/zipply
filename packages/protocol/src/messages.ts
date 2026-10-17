@@ -21,6 +21,7 @@ export const ERROR_CODES = [
   'RATE_LIMITED',
   'SERVER_BUSY',
   'ROOM_INVALID',
+  'NAME_TAKEN',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -108,14 +109,15 @@ const shape =
 const BIDI = /[؜‎‏‪-‮⁦-⁩]/u;
 const CONTROL = /\p{Cc}/u;
 const LONE_SURROGATE = /\p{Cs}/u;
+const WHITESPACE = /[\s\p{Z}]/u;
 
-/** SD-05: 1–32 code points, NFC, no surrounding whitespace, no control, bidi or lone surrogate chars. */
+/** SD-05: one word of 1–32 code points, NFC, no whitespace, control, bidi or lone surrogate chars. */
 export function isValidDisplayName(name: string): boolean {
   const length = [...name].length;
   return (
     length >= 1 &&
     length <= 32 &&
-    name === name.trim() &&
+    !WHITESPACE.test(name) &&
     !CONTROL.test(name) &&
     !BIDI.test(name) &&
     !LONE_SURROGATE.test(name) &&
