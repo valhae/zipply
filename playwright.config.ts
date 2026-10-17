@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const CI = !!process.env.CI;
+const SIGNALING = 'ws://localhost:8787/ws';
+const TEST_ORIGINS = 'http://localhost:5173,http://localhost:4173';
 const WEBRTC = /(transfer|webrtc-spike)\.spec\.ts$/;
 const ENGINES = [
   ['chromium', 'Desktop Chrome'],
@@ -35,13 +37,21 @@ export default defineConfig({
   ]),
   webServer: [
     {
+      // Local signaling Worker; the test origin allowlist is passed explicitly (never from .dev.vars).
+      command: `npm run dev -w @zipply/signaling -- --port 8787 --var ALLOWED_ORIGINS:${TEST_ORIGINS}`,
+      url: 'http://localhost:8787/healthz',
+      reuseExistingServer: !CI,
+    },
+    {
       command: 'npm run dev -w @zipply/web -- --strictPort --port 5173',
+      env: { VITE_SIGNALING_URL: SIGNALING },
       url: 'http://localhost:5173',
       reuseExistingServer: !CI,
     },
     {
       command:
         'npm run build -w @zipply/web && npm run preview -w @zipply/web -- --strictPort --port 4173',
+      env: { VITE_SIGNALING_URL: SIGNALING },
       url: 'http://localhost:4173',
       reuseExistingServer: !CI,
     },

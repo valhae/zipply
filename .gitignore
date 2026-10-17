@@ -24,3 +24,6 @@ test-results/
 .DS_Store
 Thumbs.db
 *.log
+
+# Vercel CLI project link (local only)
+.vercel

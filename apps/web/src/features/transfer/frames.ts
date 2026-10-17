@@ -85,20 +85,19 @@ export function decodeChunk(
   };
 }
 
-// Strict schema checks, shared with the signaling validator in connection/peer.ts.
-export type Check = (value: unknown) => boolean;
-export const b64 =
+type Check = (value: unknown) => boolean;
+const b64 =
   (n: number): Check =>
   (v) =>
     typeof v === 'string' && fromB64url(v)?.length === n;
-export const uint: Check = (v) => Number.isSafeInteger(v) && (v as number) >= 0;
-export const text =
+const uint: Check = (v) => Number.isSafeInteger(v) && (v as number) >= 0;
+const text =
   (min: number, max: number): Check =>
   (v) =>
     typeof v === 'string' && v.length >= min && v.length <= max;
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
-export const exact =
+const exact =
   (shape: Record<string, Check>): Check =>
   (v) =>
     isObject(v) &&

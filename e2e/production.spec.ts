@@ -27,24 +27,25 @@ test('production build makes no third-party requests and loads self-hosted fonts
   expect(fonts.every((s) => s === 200)).toBe(true);
 });
 
-test('production build ignores demo fixtures and is truthfully offline', async ({ page }) => {
+test('production build ignores demo fixtures and never fabricates peers', async ({ page }) => {
+  // With the signaling service unreachable the page must show Offline and no one, demo URL or not.
+  await page.routeWebSocket(/\/ws(\/|$)/, (ws) => ws.close());
   await page.goto('/?demo=few&connection=online');
-  await expect(page.getByRole('banner').getByRole('status')).toHaveText('Offline');
+  await expect(page.getByRole('banner').getByRole('status')).toHaveText('Offline', {
+    timeout: 20_000,
+  });
   await expect(page.getByTestId('radar-marker')).toHaveCount(0);
   await expect(page.getByTestId('radar-sweep')).toHaveCount(0);
   await expect(page.getByText('No one is discoverable here right now.')).toBeVisible();
 });
 
-test('production build contains no dev transfer harness', async ({ page }) => {
-  await page.goto('/?harness');
-  await expect(page.getByRole('heading', { level: 1, name: 'zipply' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Dev harness' })).toHaveCount(0);
+test('production bundle contains no dev-only demo fixtures', async () => {
   const dir = 'apps/web/dist/assets';
   const scripts = (await readdir(dir)).filter((f) => f.endsWith('.js'));
   expect(scripts.length).toBeGreaterThan(0);
   for (const file of scripts) {
     const js = await readFile(`${dir}/${file}`, 'utf8');
-    expect(js).not.toContain('zipply-dev-harness');
-    expect(js).not.toContain('Dev harness');
+    expect(js).not.toContain('Pixel 9');
+    expect(js).not.toContain('demo-a1');
   }
 });

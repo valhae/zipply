@@ -1,4 +1,4 @@
-import { StrictMode, Suspense, lazy } from 'react';
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './ui/styles.css';
@@ -11,20 +11,8 @@ document.addEventListener('visibilitychange', () =>
   document.documentElement.toggleAttribute('data-page-hidden', document.hidden),
 );
 
-// Dev-only transfer harness. The literal `import.meta.env.DEV` lets the production build drop it.
-const DevHarness =
-  import.meta.env.DEV && new URLSearchParams(window.location.search).has('harness')
-    ? lazy(() => import('./features/connection/DevHarness'))
-    : null;
-
 createRoot(root).render(
   <StrictMode>
-    {DevHarness ? (
-      <Suspense fallback={null}>
-        <DevHarness />
-      </Suspense>
-    ) : (
-      <App />
-    )}
+    <App />
   </StrictMode>,
 );
