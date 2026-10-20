@@ -67,9 +67,7 @@ async function openTabs(page: Page, { lobby = false } = {}) {
     });
   }
   await receiver.getByRole('switch', { name: 'Discoverable' }).click();
-  const receiverName = /you appear as (\S+)/.exec(
-    (await receiver.getByText(/you appear as/).textContent())!,
-  )![1]!;
+  const receiverName = await receiver.getByRole('textbox', { name: 'Display name' }).inputValue();
   return { sender, receiver, receiverName };
 }
 

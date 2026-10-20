@@ -5,7 +5,7 @@ import { NameControl } from './NameControl';
 afterEach(cleanup);
 
 const props = {
-  name: 'Voxl27',
+  name: 'VoxlByte',
   custom: false,
   taken: false,
   busy: false,
@@ -13,20 +13,23 @@ const props = {
   onRandom: () => {},
 };
 const edit = () => fireEvent.click(screen.getByRole('button', { name: 'Edit name' }));
-const type = (value: string) =>
-  fireEvent.change(screen.getByLabelText('Display name'), { target: { value } });
+const field = () => screen.getByRole<HTMLInputElement>('textbox', { name: 'Display name' });
+const type = (value: string) => fireEvent.change(field(), { target: { value } });
 const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
 
 describe('NameControl', () => {
-  it('shows the current name and saves a new one-word name (trimmed, NFC)', () => {
+  it('shows the name in a read-only textbox and saves a new one-word name (trimmed, NFC)', () => {
     const onChange = vi.fn();
     render(<NameControl {...props} onChange={onChange} />);
-    expect(screen.getByText('Voxl27')).toBeTruthy();
+    expect(field().value).toBe('VoxlByte');
+    expect(field().readOnly).toBe(true);
     edit();
+    expect(field().readOnly).toBe(false);
+    expect(document.activeElement).toBe(field());
     type('  Bücher_laptop  ');
     save();
     expect(onChange).toHaveBeenCalledExactlyOnceWith('Bücher_laptop');
-    expect(screen.queryByLabelText('Display name')).toBeNull();
+    expect(field().readOnly).toBe(true);
   });
 
   it.each([
@@ -51,7 +54,8 @@ describe('NameControl', () => {
     type('Other');
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onChange).not.toHaveBeenCalled();
-    expect(screen.getByText('Voxl27')).toBeTruthy();
+    expect(field().value).toBe('VoxlByte');
+    expect(field().readOnly).toBe(true);
   });
 
   it('offers a random name only when the name was chosen by the user', () => {

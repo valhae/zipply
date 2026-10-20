@@ -25,7 +25,7 @@ describe('App', () => {
 
   it('shows the shared protocol version', () => {
     render(<App />);
-    expect(screen.getByText(`protocol v${PROTOCOL_VERSION}`)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`protocol v${PROTOCOL_VERSION}$`))).toBeTruthy();
   });
 
   it('is truthfully offline with no peers when no discovery exists', () => {
@@ -58,7 +58,7 @@ describe('untrusted peer names', () => {
     const { container } = render(
       <>
         <PeerList peers={peers} selectedId={null} onSelect={() => {}} />
-        <RadarView peers={peers} selectedId={null} />
+        <RadarView peers={peers} selectedId={null} onSelect={() => {}} />
       </>,
     );
     expect(container.querySelector('img')).toBeNull();
@@ -72,7 +72,7 @@ describe('radar and list parity', () => {
     render(
       <>
         <PeerList peers={peers} selectedId={null} onSelect={() => {}} />
-        <RadarView peers={peers} selectedId={null} />
+        <RadarView peers={peers} selectedId={null} onSelect={() => {}} />
       </>,
     );
     const listIds = peers.map((p) => p.id);

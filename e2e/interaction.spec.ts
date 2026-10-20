@@ -101,3 +101,12 @@ test('status reports discoverability once online', async ({ page }) => {
   await page.getByRole('switch', { name: 'Discoverable' }).click();
   await expect(badge).toHaveText('Visible');
 });
+
+test('clicking a radar dot opens that person', async ({ page }) => {
+  await page.goto('/?demo=few');
+  // A real pointer click at the dot: the ping animation never lets the marker count as "stable".
+  const marker = page.getByTestId('radar-marker').filter({ hasText: 'Pixel 9' });
+  const box = (await marker.locator('circle').first().boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.getByRole('dialog', { name: 'Pixel 9' })).toBeVisible();
+});
