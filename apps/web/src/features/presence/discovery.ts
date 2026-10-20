@@ -49,7 +49,7 @@ export function forgetName() {
   }
 }
 
-// One-word, pixel-flavoured auto names: a base plus two digits (40 × 90 = 3,600 combinations).
+// One-word, pixel-flavoured auto names: two different bases, no digits (40 × 39 = 1,560 combinations).
 const BASES = [
   'Pixl',
   'Voxl',
@@ -92,10 +92,12 @@ const BASES = [
   'Bolt',
   'Spry',
 ];
-/** A fresh auto name such as "Voxl27"; a new one every visit so it never works as a tracking ID. */
+/** A fresh auto name such as "VoxlByte"; a new one every visit so it never works as a tracking ID. */
 export function randomPixelName(): string {
   const [a, b] = crypto.getRandomValues(new Uint32Array(2));
-  return `${BASES[a! % BASES.length]}${10 + (b! % 90)}`;
+  const first = a! % BASES.length;
+  // Offset 1..39 so the second word always differs from the first.
+  return `${BASES[first]}${BASES[(first + 1 + (b! % (BASES.length - 1))) % BASES.length]}`;
 }
 
 const MAX_AUTO_RETRIES = 5;

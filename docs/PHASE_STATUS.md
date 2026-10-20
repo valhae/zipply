@@ -139,6 +139,30 @@ Start-of-phase decisions (owner, 2026-10-17):
 - `npm run check` → exit 0: protocol 108, signaling 55, web 413.
 - **Redeployed by the owner** (commit `4049a56` on `phase-4-staging`): Vercel `https://zipply-delta.vercel.app` (200) and the staging Worker. Discovery e2e against the deployed site (temporary config, deleted) → **7 passed**. The duplicate-name test can only pass with the new Worker, which confirms the Worker redeploy.
 
+### Owner requests, round 3 (2026-10-20)
+
+- **Owner test result:** the owner reports that the laptop on Wi-Fi and the phone on mobile data found each other and transferred successfully on `https://zipply-delta.vercel.app`, and that GitHub Actions is green for `phase-4-staging`. Devices and browsers were not recorded; P4-10 is otherwise satisfied.
+- **Decisions (owner, 2026-10-20), after the limits were explained:**
+  - Auto names stay pixel words; device-model names were declined. Browsers do not expose the real model (iPhone Safari reports only "iPhone"; desktops report nothing), and the spec ("Scope and privacy recommendation") bans showing device fingerprints.
+  - The public radar stays an online lobby. A browser cannot measure a 10–15 m range: geolocation needs a permission prompt, is often off by tens of metres indoors, and the spec bans location and proximity claims. A same-network lobby (grouping by public IP) was offered and declined for now.
+  - "No numbers" applies to auto names only; typed names may still contain digits, so the protocol is unchanged.
+- **Names:** auto names are two different pixel words with no digits (`randomPixelName`, e.g. `VoxlByte`; 40 × 39 = 1,560 combinations). The display name now sits in a read-only textbox with an Edit button; Edit makes the same field editable and focuses it, Escape or Cancel restores it.
+- **Layout:** the radar is now the first and largest element (up to 30rem). Discoverable, Private room and Display name are cards beside the radar on wide screens and directly below it on phones; the Create private room button is the primary style. The people list follows the radar.
+- **Radar:** dots are clickable and open the same peer dialog as the list (a pointer shortcut; the list stays the keyboard and screen-reader path, and the radar stays `aria-hidden`). Each dot has an invisible tap area and a ripple that fires when the beam passes it; the beam is 4 s and carries a halftone trail. Ripple and beam are phase-locked to the page clock, so dots added later stay in sync. Reduced motion removes the beam and ripples.
+- **TDD (RED observed before GREEN):**
+  - `randomPixelName`: 1 failed, then 14 passed;
+  - NameControl textbox: 2 failed against the old component, then 9 passed;
+  - RadarView (dot click, ripple): 2 failed, then passed.
+- `npm run check` → exit 0: protocol 108, signaling 55, web 415.
+- `npm run build` → web JS 285.47 kB (**93.66 kB gzip**, budget 200 kB), CSS **6.09 kB gzip**.
+- **e2e:**
+  - `npx playwright test e2e/layout.spec.ts e2e/interaction.spec.ts --project=chromium --workers=2` → 35 passed. The first run found horizontal overflow on phones (the rotating beam's box); the radar card clips it again.
+  - New test "clicking a radar dot opens that person" → passed on Chromium, Firefox and WebKit. It clicks with the mouse at the dot, because the running ripple keeps Playwright from treating the marker as stable.
+  - `npx playwright test e2e/discovery.spec.ts e2e/production.spec.ts --project=chromium --workers=2` → 10 passed; `e2e/discovery.spec.ts` alone on Firefox → 7 passed.
+  - `npx playwright test e2e/transfer.spec.ts --project=chromium-webrtc --no-deps` → 6 passed.
+  - Full runs per engine (`--project=<engine> --workers=2`): Chromium 45 passed, 1 failed; Firefox 41 passed, 4 failed, 1 skipped; WebKit 44 passed, 2 failed. Every failure is in `discovery.spec.ts` (live multi-page tests). Chromium and Firefox pass that spec when it runs alone.
+  - WebKit `discovery.spec.ts` alone → 5 passed, 2 failed (30 s test timeout on the two three-page tests). The **last commit without these changes fails the same two tests the same way on this machine today** (`git stash -u`, same command: 5 passed, 2 failed), so this is load on the 8 GB machine (R17), not a regression. A probe measured 7–8 frames per second in headless WebKit on Windows with two pages open, for both versions; the beam is a compositor layer (`will-change: transform`) to keep it at the old cost.
+
 ## Phase 3 task log
 
 Environment: Windows 11 Home 10.0.26300, Node v24.22.0, npm 11.15.0, Playwright 1.64.1 (Chromium 156.0.8078.4, Firefox 157.0, WebKit 27.2). Date: 2026-10-17. Work is uncommitted on the current branch `phase-2-ui`, for the owner to commit.

@@ -6,8 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const badge = (p: Page) => p.getByRole('banner').getByRole('status');
 const people = (p: Page) => p.getByRole('list', { name: 'Discoverable people' });
-const nameOf = async (p: Page) =>
-  /you appear as (\S+)/.exec((await p.getByText(/you appear as/).textContent())!)![1]!;
+const nameOf = (p: Page) => p.getByRole('textbox', { name: 'Display name' }).inputValue();
 
 async function online(page: Page, url = '/') {
   const p = await page.context().newPage();

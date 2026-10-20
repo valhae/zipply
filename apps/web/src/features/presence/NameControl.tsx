@@ -18,6 +18,7 @@ interface Props {
 export function NameControl({ name, custom, taken, busy, onChange, onRandom }: Props) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState(false);
+  const editing = draft !== null;
 
   const save = () => {
     const next = (draft ?? '').trim().normalize('NFC');
@@ -26,77 +27,93 @@ export function NameControl({ name, custom, taken, busy, onChange, onRandom }: P
     setDraft(null);
     setError(false);
   };
+  const cancel = () => {
+    setDraft(null);
+    setError(false);
+  };
 
-  if (draft !== null) {
-    return (
-      <form
-        className="mt-4 grid gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          save();
-        }}
-      >
-        <label className="grid gap-1 text-[13px]">
-          <span className="micro text-[10px] text-gray-500">Display name</span>
-          <input
-            // Focus follows the user's Edit click, so keyboard users land in the field.
-            ref={(el) => el?.focus()}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            aria-invalid={error}
-            aria-describedby={error ? 'name-error' : undefined}
-            className="min-h-11 w-full rounded-md border border-gray-200 bg-bg px-3 text-[15px]"
-          />
-        </label>
-        {error && (
-          <p id="name-error" role="alert" className="text-[13px] text-gray-600">
-            Use one word of 1–32 characters: no spaces, line breaks or hidden formatting characters.
-          </p>
+  return (
+    <form
+      className="grid gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <label htmlFor="display-name" className="micro text-[10px] text-gray-500">
+        Display name
+      </label>
+      <div className="flex gap-2">
+        <input
+          id="display-name"
+          // Focus follows the user's Edit click, so keyboard users land in the field.
+          ref={editing ? (el) => el?.focus() : undefined}
+          readOnly={!editing}
+          value={draft ?? name}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === 'Escape' && editing && cancel()}
+          aria-invalid={error}
+          aria-describedby={error ? 'name-error' : undefined}
+          className="min-h-11 w-full min-w-0 rounded-md border border-gray-200 bg-bg px-3 text-[15px] font-medium read-only:bg-gray-50"
+        />
+        {!editing && (
+          <Button
+            aria-label="Edit name"
+            disabled={busy}
+            onClick={() => setDraft(name)}
+            className="shrink-0 px-3"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              className="size-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
+            </svg>
+            Edit
+          </Button>
         )}
+      </div>
+      {error && (
+        <p id="name-error" role="alert" className="text-[13px] text-gray-600">
+          Use one word of 1–32 characters: no spaces, line breaks or hidden formatting characters.
+        </p>
+      )}
+      {editing ? (
         <div className="grid grid-cols-2 gap-2">
           <Button type="submit" variant="primary">
             Save name
           </Button>
-          <Button
-            onClick={() => {
-              setDraft(null);
-              setError(false);
-            }}
-          >
-            Cancel
-          </Button>
+          <Button onClick={cancel}>Cancel</Button>
         </div>
-      </form>
-    );
-  }
-
-  return (
-    <div className="mt-4">
-      <p className="text-[13px] text-gray-600">
-        Others see you as <span className="font-medium text-ink">{name}</span>. A name is only a
-        label, not proof of who you are.
-      </p>
-      {taken && (
-        <p role="alert" className="mt-2 text-[13px] text-gray-600">
-          Someone visible here already uses this name, so you stay hidden. Pick another name to
-          become discoverable.
-        </p>
+      ) : (
+        <>
+          <p className="text-[13px] text-gray-600">
+            Others see this name. It is only a label, not proof of who you are.
+          </p>
+          {taken && (
+            <p role="alert" className="text-[13px] text-gray-600">
+              Someone visible here already uses this name, so you stay hidden. Pick another name to
+              become discoverable.
+            </p>
+          )}
+          {custom && (
+            <Button disabled={busy} onClick={onRandom} className="justify-self-start">
+              Random name
+            </Button>
+          )}
+          {busy && (
+            <p className="text-[13px] text-gray-600">
+              You can change your name when no connection is in progress.
+            </p>
+          )}
+        </>
       )}
-      <div className="mt-2 flex flex-wrap gap-2">
-        <Button disabled={busy} onClick={() => setDraft(name)}>
-          Edit name
-        </Button>
-        {custom && (
-          <Button disabled={busy} onClick={onRandom}>
-            Random name
-          </Button>
-        )}
-      </div>
-      {busy && (
-        <p className="mt-2 text-[13px] text-gray-600">
-          You can change your name when no connection is in progress.
-        </p>
-      )}
-    </div>
+    </form>
   );
 }

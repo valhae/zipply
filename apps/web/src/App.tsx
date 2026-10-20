@@ -117,52 +117,19 @@ export default function App() {
       </header>
 
       <main className={`${WIDTH} pb-20`}>
-        <section className="enter py-14 [--i:0] sm:py-20">
-          <h1 className="font-pixel text-5xl leading-none lowercase sm:text-6xl">zipply</h1>
-          <p className="mt-5 max-w-md text-[17px] leading-relaxed text-gray-600">
+        <section className="enter pt-8 pb-6 text-center [--i:0] sm:pt-10">
+          <h1 className="font-pixel text-4xl leading-none lowercase sm:text-5xl">zipply</h1>
+          <p className="mt-3 text-[15px] text-gray-600">
             Private file sharing, directly between browsers.
-          </p>
-          <p className="micro mt-4 text-[10px] text-gray-500">
-            In development · you appear as {name}
           </p>
         </section>
 
-        <div className="grid items-start gap-14 lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-16">
-          <section
-            aria-labelledby="visibility-heading"
-            className="enter min-w-0 [--i:1] lg:sticky lg:top-24"
-          >
-            <SectionHeader id="visibility-heading" index="01" title="visibility" />
-            <VisibilityControl
-              discoverable={discoverable}
-              online={connection === 'online'}
-              onChange={changeVisibility}
-            />
-            {!demo && (
-              <NameControl
-                name={name}
-                custom={live.customName}
-                taken={live.presence.nameTaken}
-                busy={!['idle', 'ended'].includes(link.phase)}
-                onChange={rename}
-                onRandom={randomName}
-              />
-            )}
-            {!demo && (
-              <RoomControl
-                room={live.room}
-                invalid={live.presence.roomInvalid || badRoomLink}
-                onCreate={() => void enterRoom(true)}
-                onLeave={() => void enterRoom(false)}
-              />
-            )}
-          </section>
-
-          <section aria-labelledby="discovery-heading" className="enter min-w-0 [--i:2]">
+        <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-12">
+          <section aria-labelledby="discovery-heading" className="enter min-w-0 [--i:1]">
             <SectionHeader
               id="discovery-heading"
-              index="02"
-              title="discovery"
+              index="01"
+              title="radar"
               meta={
                 live.room ? (
                   <>
@@ -186,35 +153,75 @@ export default function App() {
                 </Button>
               </div>
             )}
-            <div className="relative overflow-hidden rounded-2xl border border-gray-200 px-6 pt-10 pb-12 shadow-card">
-              <div
-                aria-hidden="true"
-                className="halftone absolute top-0 right-0 size-48 opacity-60 [mask-image:radial-gradient(circle_at_top_right,black,transparent_70%)]"
-              />
+            <div className="overflow-hidden rounded-2xl border border-gray-200 px-4 pt-8 pb-10 shadow-card sm:px-8">
               <RadarView
                 peers={peers}
                 selectedId={selectedId}
+                onSelect={setSelectedId}
                 scanning={connection !== 'offline'}
               />
+              <p className="micro mt-10 text-center text-[10px] text-gray-500">
+                Tap a dot or a name below to send files
+              </p>
             </div>
-            <div className="mt-10">
-              <div className="mb-2 flex items-baseline justify-between">
-                <h3 className="micro text-[10px] text-gray-600">People</h3>
-                <span className="micro text-[10px] text-gray-500">{peers.length}</span>
-              </div>
-              <PeerList
-                peers={peers}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
-                locked={!!live.room}
+          </section>
+
+          <section
+            aria-labelledby="visibility-heading"
+            className="enter grid min-w-0 gap-4 [--i:2] sm:grid-cols-2 lg:sticky lg:top-24 lg:row-span-2 lg:grid-cols-1"
+          >
+            <h2 id="visibility-heading" className="sr-only">
+              Your visibility
+            </h2>
+            <VisibilityControl
+              discoverable={discoverable}
+              online={connection === 'online'}
+              onChange={changeVisibility}
+            />
+            {!demo && (
+              <RoomControl
+                room={live.room}
+                invalid={live.presence.roomInvalid || badRoomLink}
+                onCreate={() => void enterRoom(true)}
+                onLeave={() => void enterRoom(false)}
               />
+            )}
+            {!demo && (
+              <div className="rounded-2xl border border-gray-200 p-5 sm:col-span-2 lg:col-span-1">
+                <NameControl
+                  name={name}
+                  custom={live.customName}
+                  taken={live.presence.nameTaken}
+                  busy={!['idle', 'ended'].includes(link.phase)}
+                  onChange={rename}
+                  onRandom={randomName}
+                />
+              </div>
+            )}
+          </section>
+
+          <section
+            aria-labelledby="people-heading"
+            className="enter min-w-0 [--i:3] lg:col-start-1"
+          >
+            <div className="mb-2 flex items-baseline justify-between">
+              <h2 id="people-heading" className="micro text-[10px] text-gray-600">
+                People
+              </h2>
+              <span className="micro text-[10px] text-gray-500">{peers.length}</span>
             </div>
+            <PeerList
+              peers={peers}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              locked={!!live.room}
+            />
           </section>
         </div>
 
         {link.phase !== 'idle' && link.phase !== 'incoming' && (
           <section aria-labelledby="connection-heading" className="mt-14">
-            <SectionHeader id="connection-heading" index="03" title="connection" />
+            <SectionHeader id="connection-heading" index="02" title="connection" />
             <ConnectionPanel
               link={link}
               onCancel={discovery.cancel}
@@ -225,7 +232,9 @@ export default function App() {
       </main>
 
       <footer className={`${WIDTH} flex h-16 items-center border-t border-gray-200`}>
-        <p className="micro text-[10px] text-gray-500">protocol v{PROTOCOL_VERSION}</p>
+        <p className="micro text-[10px] text-gray-500">
+          In development · protocol v{PROTOCOL_VERSION}
+        </p>
       </footer>
 
       <PeerDetails

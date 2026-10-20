@@ -137,9 +137,35 @@
 @utility pulse {
   animation: pulse-dot 1.8s ease-in-out infinite;
 }
+@keyframes ping {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.6;
+  }
+  45%,
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+/* Loop length (4s) must match SWEEP_MS in RadarView.tsx so dots ping as the beam passes. */
 @utility sweep {
   transform-origin: center;
-  animation: sweep 6s linear infinite;
+  animation: sweep 4s linear infinite;
+}
+@utility ping {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: ping 4s var(--ease-out-soft) infinite;
+}
+/* Halftone trail that rides inside the rotating beam. */
+@utility beam-dots {
+  background-image: radial-gradient(var(--dot) 1px, transparent 1.2px);
+  background-size: 9px 9px;
+  mask-image: conic-gradient(from 0deg, transparent 0deg 250deg, black 360deg);
+  opacity: 0.55;
 }
 
 [data-page-hidden] * {

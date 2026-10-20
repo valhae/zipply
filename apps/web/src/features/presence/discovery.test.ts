@@ -150,10 +150,11 @@ describe('names', () => {
 });
 
 describe('randomPixelName', () => {
-  it('is one valid word, pixel style, and varied', () => {
+  it('is one valid word of two different pixel words, no digits, and varied', () => {
     const names = Array.from({ length: 300 }, randomPixelName);
     for (const n of names) {
-      expect(n).toMatch(/^[A-Z][a-z]+\d{2}$/);
+      const [, a, b] = /^([A-Z][a-z]+)([A-Z][a-z]+)$/.exec(n)!;
+      expect(a).not.toBe(b);
       expect(isValidDisplayName(n)).toBe(true);
     }
     expect(new Set(names).size).toBeGreaterThan(200);

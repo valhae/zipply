@@ -19,7 +19,7 @@ export function RoomControl({ room, invalid, onCreate, onLeave }: Props) {
     : '';
 
   return (
-    <div className="mt-4 rounded-2xl border border-gray-200 p-5">
+    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 shadow-card">
       <p className="flex items-center gap-1.5 font-medium">
         <LockIcon /> Private room
       </p>
@@ -59,7 +59,7 @@ export function RoomControl({ room, invalid, onCreate, onLeave }: Props) {
           Leave room
         </Button>
       ) : (
-        <Button className="mt-3 w-full" onClick={onCreate}>
+        <Button variant="primary" className="mt-3 w-full" onClick={onCreate}>
           Create private room
         </Button>
       )}
