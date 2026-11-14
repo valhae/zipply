@@ -1,126 +1,30 @@
-import AxeBuilder from '@axe-core/playwright';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
-import { expect, test, type Download, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import {
+  axe,
+  connect,
+  downloads,
+  openTabs,
+  saved,
+  sent,
+  sha,
+  skipWithoutWebRTC,
+  status,
+  typeHeard,
+  verify,
+  words,
+} from './webrtc';
 
-// Two pages of the real app find each other through the local signaling Worker (`wrangler dev`) and
-// connect over a real RTCPeerConnection. Each test uses its own private room for isolation, except
-// the multi-file test, which discovers the receiver in the public lobby. Every DataChannel send is
-// counted, so "0 manifest / 0 payload bytes" is measured at the channel, not inferred from the UI.
+// Each test uses its own private room for isolation, except the multi-file test, which discovers
+// the receiver in the public lobby.
 
-declare global {
-  interface Window {
-    __sent: { manifestBytes: number; payloadBytes: number; controls: string[] };
-  }
-}
-
-// GitHub-hosted WebKit offers only an mDNS host candidate that another page cannot resolve
-// (spike (f) on CI: connectionState stays 'new'). Safari needs real devices anyway (R11).
-const WEBKIT_CI = "CI WebKit cannot resolve another page's mDNS host candidate";
 const CHUNK = 65_536; // payload size at Chromium/Firefox maxMessageSize (P3-01)
 
 // Heavy (real WebRTC, SHA-256 of every chunk, up to 50 MiB): one at a time per file, longer timeout.
 test.describe.configure({ mode: 'default', timeout: 90_000 });
 
-test.beforeEach(async ({ page }, testInfo) => {
-  await page.goto('/');
-  const rtc = await page.evaluate(() => 'RTCPeerConnection' in window);
-  test.skip(
-    !rtc,
-    `${testInfo.project.name}: this Playwright build has no WebRTC (see PHASE_STATUS)`,
-  );
-  test.skip(!!process.env.CI && testInfo.project.name === 'webkit-webrtc', WEBKIT_CI);
-});
-
-async function openTabs(page: Page, { lobby = false } = {}) {
-  const context = page.context();
-  await context.addInitScript(() => {
-    window.__sent = { manifestBytes: 0, payloadBytes: 0, controls: [] };
-    const send = RTCDataChannel.prototype.send;
-    RTCDataChannel.prototype.send = function (this: RTCDataChannel, data: unknown) {
-      if (typeof data === 'string') {
-        const t = (JSON.parse(data) as { t: string }).t;
-        window.__sent.controls.push(t);
-        if (t === 'manifest') window.__sent.manifestBytes += data.length;
-      } else {
-        window.__sent.payloadBytes += (data as ArrayBuffer).byteLength;
-      }
-      return send.call(this, data as ArrayBufferView<ArrayBuffer>);
-    };
-  });
-  const sender = await context.newPage();
-  await sender.goto('/');
-  let url = '/';
-  if (!lobby) {
-    await sender.getByRole('button', { name: 'Create private room' }).click();
-    url = await sender.getByLabel('Room link').inputValue();
-  }
-  const receiver = await context.newPage();
-  const got: Download[] = [];
-  saved.set(receiver, got);
-  receiver.on('download', (d) => got.push(d));
-  await receiver.goto(url);
-  for (const p of [sender, receiver]) {
-    // Live handshake with the local Worker; slow when the machine is loaded.
-    await expect(p.getByRole('banner').getByRole('status')).toHaveText('Invisible', {
-      timeout: 20_000,
-    });
-  }
-  await receiver.getByRole('switch', { name: 'Discoverable' }).click();
-  const receiverName = await receiver.getByRole('textbox', { name: 'Display name' }).inputValue();
-  return { sender, receiver, receiverName };
-}
-
-type Files = Parameters<Page['setInputFiles']>[1];
-
-async function connect(sender: Page, receiver: Page, receiverName: string, files: Files) {
-  await sender
-    .getByRole('list', { name: 'Discoverable people' })
-    .getByRole('button', { name: receiverName })
-    .click();
-  const details = sender.getByRole('dialog', { name: receiverName });
-  await details.getByLabel('Files to send').setInputFiles(files);
-  await details.getByRole('button', { name: 'Request connection' }).click();
-  const request = receiver.getByRole('dialog', { name: 'Connection request' });
-  await expect(request).toBeVisible();
-  return request;
-}
-
-/** The connection section's own status line (the header badge and live region are separate). */
-const status = (p: Page) => p.locator('[aria-labelledby="connection-heading"]').getByRole('status');
-
-async function verify(sender: Page, receiver: Page) {
-  const words = async (p: Page) => {
-    const dialog = p.getByRole('dialog', { name: 'Verification required' });
-    await expect(dialog.getByRole('listitem')).toHaveCount(6, { timeout: 20_000 });
-    return dialog.getByRole('listitem').allTextContents();
-  };
-  const [a, b] = [await words(sender), await words(receiver)];
-  expect(a).toEqual(b);
-  return a;
-}
-
-const sent = (p: Page) => p.evaluate(() => window.__sent);
-const axe = async (p: Page) =>
-  (await new AxeBuilder({ page: p }).analyze()).violations.map(
-    (v) => `${v.impact} ${v.id}: ${v.help}`,
-  );
-const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
-
-// Verified files are saved automatically (owner decision, 2026-10-17): no clicks here.
-const saved = new WeakMap<Page, Download[]>();
-
-async function downloads(receiver: Page, expected: { name: string; buffer: Buffer }[]) {
-  await expect(status(receiver)).toContainText('Every file passed its integrity check', {
-    timeout: 120_000,
-  });
-  const got = saved.get(receiver)!;
-  await expect.poll(() => got.length).toBe(expected.length);
-  expect(got.map((d) => d.suggestedFilename())).toEqual(expected.map((f) => f.name));
-  for (const [i, file] of expected.entries()) {
-    expect(sha(await readFile((await got[i]!.path())!))).toBe(sha(file.buffer));
-  }
-}
+test.beforeEach(async ({ page }, testInfo) => skipWithoutWebRTC(page, testInfo));
 
 test('multi-file transfer with edge sizes is byte-exact', async ({ page }) => {
   const { sender, receiver, receiverName } = await openTabs(page, { lobby: true });
@@ -136,12 +40,13 @@ test('multi-file transfer with edge sizes is byte-exact', async ({ page }) => {
   )
     .getByRole('button', { name: 'Accept connection' })
     .click();
-  await verify(sender, receiver);
+  const w = await words(sender, receiver);
   expect(await sent(sender)).toMatchObject({ manifestBytes: 0, payloadBytes: 0 });
   expect(await axe(receiver)).toEqual([]);
 
-  await sender.getByRole('button', { name: 'The words match' }).click();
-  await receiver.getByRole('button', { name: 'The words match' }).click();
+  await typeHeard(sender, w.receiver);
+  expect(await sent(sender)).toMatchObject({ manifestBytes: 0, payloadBytes: 0 });
+  await typeHeard(receiver, w.sender);
   const incoming = receiver.getByRole('dialog', { name: 'Incoming files' });
   await expect(incoming.getByRole('listitem')).toHaveCount(files.length);
   expect(await axe(receiver)).toEqual([]);
@@ -164,8 +69,6 @@ test('random 50 MiB file is byte-exact', async ({ page }, testInfo) => {
     .getByRole('button', { name: 'Accept connection' })
     .click();
   await verify(sender, receiver);
-  await sender.getByRole('button', { name: 'The words match' }).click();
-  await receiver.getByRole('button', { name: 'The words match' }).click();
   await receiver.getByRole('button', { name: 'Accept files' }).click();
   await downloads(receiver, [{ name: 'random-50MiB.bin', buffer }]);
 });
@@ -194,8 +97,8 @@ test('a verification mismatch sends no manifest and no payload', async ({ page }
   )
     .getByRole('button', { name: 'Accept connection' })
     .click();
-  await verify(sender, receiver);
-  await sender.getByRole('button', { name: 'The words match' }).click();
+  const w = await words(sender, receiver);
+  await typeHeard(sender, w.receiver);
   await receiver.getByRole('button', { name: 'Mismatch — cancel' }).click();
   await expect(status(receiver)).toContainText('did not match');
   await expect(status(sender)).toContainText('connection was lost');
@@ -215,8 +118,6 @@ test('rejecting the files sends no payload', async ({ page }) => {
     .getByRole('button', { name: 'Accept connection' })
     .click();
   await verify(sender, receiver);
-  await sender.getByRole('button', { name: 'The words match' }).click();
-  await receiver.getByRole('button', { name: 'The words match' }).click();
   await receiver.getByRole('button', { name: 'Reject files' }).click();
   await expect(status(sender)).toContainText('rejected the files');
   expect((await sent(sender)).payloadBytes).toBe(0);
@@ -232,8 +133,6 @@ test('the receiver can cancel mid-transfer and both sides stop', async ({ page }
     .getByRole('button', { name: 'Accept connection' })
     .click();
   await verify(sender, receiver);
-  await sender.getByRole('button', { name: 'The words match' }).click();
-  await receiver.getByRole('button', { name: 'The words match' }).click();
   await receiver.getByRole('button', { name: 'Accept files' }).click();
   await expect(receiver.getByRole('progressbar', { name: 'Transfer progress' })).toBeVisible();
   await receiver.getByRole('button', { name: 'Cancel transfer' }).click();
@@ -243,4 +142,50 @@ test('the receiver can cancel mid-transfer and both sides stop', async ({ page }
   await sender.waitForTimeout(500);
   expect((await sent(sender)).payloadBytes).toBe(before);
   expect(before).toBeLessThan(20 * 1024 * 1024);
+});
+
+test('hostile names show as text and active files are saved inert (P5-08)', async ({ page }) => {
+  const { sender, receiver, receiverName } = await openTabs(page);
+  const files = [
+    ['<img src=x onerror="window.__xss=1">.html', 'text/html', '<script>window.__xss=2</script>'],
+    [
+      'image.svg',
+      'image/svg+xml',
+      '<svg xmlns="http://www.w3.org/2000/svg" onload="window.__xss=3"/>',
+    ],
+    ['script.js', 'application/javascript', 'window.__xss=4'],
+    ['\u202Etxt.exe', 'text/plain', 'bidi override'],
+    ['bell\u0007.txt', 'text/plain', 'control character'],
+    ['../../etc/passwd', 'text/plain', 'path traversal'],
+    ['CON.txt', 'text/plain', 'reserved device name'],
+  ].map(([name, mimeType, text]) => ({
+    name: name!,
+    mimeType: mimeType!,
+    buffer: Buffer.from(text!),
+  }));
+  await (
+    await connect(sender, receiver, receiverName, files)
+  )
+    .getByRole('button', { name: 'Accept connection' })
+    .click();
+  await verify(sender, receiver);
+  const incoming = receiver.getByRole('dialog', { name: 'Incoming files' });
+  await expect(incoming.getByRole('listitem')).toHaveCount(files.length);
+  await expect(incoming.locator('img, svg image, script, iframe, object')).toHaveCount(0);
+  await expect(incoming).toContainText('img src=x onerror=');
+  await incoming.getByRole('button', { name: 'Accept files' }).click();
+
+  await expect(status(receiver)).toContainText('Every file passed its integrity check');
+  const got = saved.get(receiver)!;
+  await expect.poll(() => got.length).toBe(files.length);
+  const pagesBefore = page.context().pages().length;
+  for (const [i, d] of got.entries()) {
+    // Saved byte-for-byte under a sanitized name; nothing was opened or run in the app's origin.
+    expect(d.suggestedFilename()).not.toMatch(/[<>/\\:\p{Cc}\p{Cf}]/u);
+    expect(sha(await readFile((await d.path())!))).toBe(sha(files[i]!.buffer));
+  }
+  expect(got.map((d) => d.suggestedFilename())).toContain('_CON.txt');
+  expect(page.context().pages().length).toBe(pagesBefore);
+  expect(new URL(receiver.url()).pathname).toBe('/');
+  expect(await receiver.evaluate(() => '__xss' in window)).toBe(false);
 });

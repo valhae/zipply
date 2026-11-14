@@ -25,7 +25,9 @@ import {
   randomBytes,
   sasDigest,
   sha256,
+  splitPhrase,
   toB64url,
+  wordsMatch,
 } from './sas';
 
 export interface SessionOptions {
@@ -45,7 +47,9 @@ export interface SessionOptions {
 export interface Snapshot {
   state: GateState;
   reason?: FailReason;
-  phrase: string[] | null;
+  /** The three words this device's user reads aloud (D19); the half they must type is never here. */
+  say: string[] | null;
+  attemptsLeft: number;
   localConfirmed: boolean;
   manifest: { files: { name: string; size: number }[]; total: number } | null;
   tooLarge: boolean;
@@ -59,6 +63,7 @@ export type Session = ReturnType<typeof createSession>;
 const HIGH_WATERMARK = 1024 * 1024;
 const LOW_WATERMARK = 256 * 1024;
 const CLOSE_GRACE_MS = 3000;
+export const WORD_ATTEMPTS = 3;
 
 const enc = new TextEncoder();
 const sum = (files: { size: number }[]) => files.reduce((n, f) => n + f.size, 0);
@@ -72,9 +77,11 @@ export function createSession(o: SessionOptions) {
   const { channel } = o;
   const secrets = { ...o.secrets };
   let gate: Gate = INITIAL_GATE;
+  let hear: string[] | null = null;
   let snap: Snapshot = {
     state: gate.state,
-    phrase: null,
+    say: null,
+    attemptsLeft: WORD_ATTEMPTS,
     localConfirmed: false,
     manifest: null,
     tooLarge: false,
@@ -115,7 +122,8 @@ export function createSession(o: SessionOptions) {
     abort.abort();
     for (const key of ['nO', 'nA', 'cO'] as const) secrets[key]?.fill(0);
     gate = { ...gate, d: null, fp: null, manifestDigest: null };
-    update({ phrase: null });
+    hear = null;
+    update({ say: null });
     if (closed) return;
     closed = true;
     channel.close();
@@ -149,7 +157,9 @@ export function createSession(o: SessionOptions) {
       fpA,
     });
     if (dispatch({ type: 'sas-ready', d: toB64url(d), fp: fingerprintKey() }, 'verifying')) {
-      update({ phrase: phrase(d) });
+      const words = splitPhrase(phrase(d), o.role);
+      hear = words.hear;
+      update({ say: words.say });
     }
   }
 
@@ -341,13 +351,26 @@ export function createSession(o: SessionOptions) {
       listeners.add(fn);
       return () => void listeners.delete(fn);
     },
-    /** Local user action only: "The words match". */
-    confirm() {
-      if (gate.state !== 'verifying' || gate.d === null || gate.localConfirmed) return;
+    /**
+     * Local user action only (D19): the words this user heard from the other person. Checked here
+     * and never sent; the third wrong entry fails closed as a mismatch.
+     */
+    checkWords(typed: string): 'ok' | 'wrong' | 'failed' | 'ignored' {
+      if (gate.state !== 'verifying' || gate.d === null || !hear || gate.localConfirmed) {
+        return 'ignored';
+      }
+      if (!wordsMatch(typed, hear)) {
+        const attemptsLeft = snap.attemptsLeft - 1;
+        update({ attemptsLeft });
+        if (attemptsLeft > 0) return 'wrong';
+        fail('mismatch');
+        return 'failed';
+      }
       const d = gate.d;
       const verified = dispatch({ type: 'local-confirm' }, 'verified');
       sendControl({ v: 1, t: 'sas-confirm', d });
       if (o.role === 'offerer' && verified) void sendManifest();
+      return 'ok';
     },
     mismatch: () => void fail('mismatch'),
     /** The peer connection failed or timed out. */

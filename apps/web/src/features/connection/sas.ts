@@ -106,3 +106,21 @@ export function phrase(d: Uint8Array): string[] {
     (_, k) => WORDLIST[parseInt(bits.slice(k * 11, k * 11 + 11), 2)]!,
   );
 }
+
+/**
+ * D19: the offerer's user reads words 1–3 aloud and the answerer's user words 4–6. Each device
+ * checks only the half its own user typed, and never shows that half.
+ */
+export function splitPhrase(words: string[], role: 'offerer' | 'answerer') {
+  const [first, second] = [words.slice(0, 3), words.slice(3, 6)];
+  return role === 'offerer' ? { say: first, hear: second } : { say: second, hear: first };
+}
+
+/** Typed words, in order; case, spaces and punctuation between words are ignored. */
+export function wordsMatch(typed: string, hear: string[]): boolean {
+  const got = typed
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean);
+  return got.length === hear.length && got.every((w, i) => w === hear[i]);
+}

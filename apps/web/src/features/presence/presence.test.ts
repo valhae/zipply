@@ -129,10 +129,23 @@ describe('presence client', () => {
     expect(p.getSnapshot().peers).toEqual([]);
   });
 
-  it('ignores invalid or forged server messages', () => {
+  it('ignores invalid or forged server messages, including trust flags (P5-02)', () => {
     const p = start();
     welcome(last());
+    const routed = vi.fn();
+    p.onMessage(routed);
     const before = p.getSnapshot();
+    const forged = (type: string, payload: object) =>
+      last().receive(JSON.stringify({ version: 1, type, payload }));
+    forged('sas-confirm', { d: ID });
+    forged('verified', { verified: true });
+    forged('connection-request', {
+      requestId: ID,
+      fromPeerId: ID2,
+      displayName: 'Alex',
+      expiresAt: 1,
+      verified: true,
+    });
     last().receive('{');
     last().receive(JSON.stringify({ version: 1, type: 'peer-verified', payload: { peerId: ID2 } }));
     last().receive(
@@ -143,6 +156,7 @@ describe('presence client', () => {
       }),
     );
     expect(p.getSnapshot()).toBe(before);
+    expect(routed).not.toHaveBeenCalled();
   });
 
   it('sends visibility changes and remembers them for the next hello', () => {

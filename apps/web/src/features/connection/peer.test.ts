@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { iceServers } from './peer';
+import { iceServers, stunHosts } from './peer';
 
 describe('iceServers', () => {
   it('reads a comma-separated list of STUN URLs', () => {
@@ -17,5 +17,15 @@ describe('iceServers', () => {
     expect(iceServers('turn:relay.example:3478,http://x,stun:ok.example')).toEqual([
       { urls: ['stun:ok.example'] },
     ]);
+  });
+});
+
+describe('stunHosts', () => {
+  it('lists the hostnames the IP disclosure names', () => {
+    expect(stunHosts(iceServers('stun:stun.cloudflare.com:3478,stuns:b.example'))).toEqual([
+      'stun.cloudflare.com',
+      'b.example',
+    ]);
+    expect(stunHosts([])).toEqual([]);
   });
 });

@@ -16,3 +16,24 @@ export function signalingUrlProblem(
   if (parsed.protocol !== 'ws:') return 'invalid';
   return LOCAL_HOSTS.includes(parsed.hostname) ? null : 'insecure';
 }
+
+/**
+ * The build-dependent part of the CSP (SD-09), sent as a <meta> tag: the signaling origin and the
+ * inline theme script's hash differ per build. Header-only directives live in vercel.json.
+ */
+export function contentSecurityPolicy(signalingUrl: string | undefined, scriptHashes: string[]) {
+  const signaling = signalingUrlProblem(signalingUrl) === null ? new URL(signalingUrl!).origin : '';
+  return [
+    "default-src 'self'",
+    ["script-src 'self'", ...scriptHashes.map((h) => `'sha256-${h}'`)].join(' '),
+    "style-src 'self'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    `connect-src 'self'${signaling && ` ${signaling}`}`,
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join('; ');
+}

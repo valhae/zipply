@@ -66,7 +66,7 @@ Each control message is a JSON object with exactly the listed keys, `v: 1` and a
 | `t`            | Other fields                                      | Direction          | Allowed when                                    |
 | -------------- | ------------------------------------------------- | ------------------ | ----------------------------------------------- |
 | `sas-reveal`   | `nO` (16 bytes)                                   | offerer → answerer | channel open, before any confirmation           |
-| `sas-confirm`  | `d` (32 bytes, the SAS digest D)                  | both               | after the sender's local "The words match"      |
+| `sas-confirm`  | `d` (32 bytes, the SAS digest D)                  | both               | after the sender's own typed-word check passed  |
 | `manifest`     | `transferId` (16 bytes), `chunkSize`, `files[]`   | offerer → answerer | both confirmations present (state `verified`)   |
 | `files-accept` | `transferId`, `manifestDigest` (32 bytes)         | answerer → offerer | state `offered`, after the user's Accept        |
 | `files-reject` | `transferId`                                      | answerer → offerer | state `offered`                                 |
@@ -98,8 +98,8 @@ The receiver accepts a chunk only if it is the next expected one: same `transfer
 
 ## 3. Sequence
 
-1. The DataChannel opens. The offerer sends `sas-reveal`. The answerer checks `SHA-256("zipply/sas-commit/v1" ‖ connId ‖ nO) = cO`, then both compute D and show the six-word phrase (SD-02).
-2. Each user compares the words. "The words match" sends `sas-confirm{d}`; "Mismatch — cancel" closes the connection. A received `sas-confirm` never sets the local confirmation. A different `d` is a mismatch.
+1. The DataChannel opens. The offerer sends `sas-reveal`. The answerer checks `SHA-256("zipply/sas-commit/v1" ‖ connId ‖ nO) = cO`, then both compute D and its six-word phrase (SD-02).
+2. Spoken-and-typed check (D19, SD-02): the offerer's screen shows words 1–3 and the answerer's shows words 4–6. Each user reads their three words aloud and types the three they hear. Each device checks only what its own user typed, against the half it does not show; the typed words are never sent. A correct entry sends `sas-confirm{d}`. The third wrong entry, or "Mismatch — cancel", closes the connection. A received `sas-confirm` never sets the local confirmation. A different `d` is a mismatch.
 3. With both confirmations, the offerer sends `manifest`. The receiver shows names (sanitized), sizes and total. If the total exceeds the receive limit (256 MiB, memory sink), it sends `files-reject` automatically.
 4. Accept sends `files-accept`; Reject sends `files-reject` and ends the connection.
 5. The sender streams each file's chunks with backpressure (high watermark 1 MiB, low 256 KiB), then sends `file-end{root}`, where root = SHA-256 of the concatenated chunk digests. Files are sent one after another without waiting for a per-file reply; the receiver verifies each root and fails the transfer on any mismatch.

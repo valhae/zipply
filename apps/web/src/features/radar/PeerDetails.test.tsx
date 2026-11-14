@@ -40,4 +40,28 @@ describe('PeerDetails', () => {
     render(<PeerDetails peer={peer} canRequest onRequest={() => {}} onClose={() => {}} />);
     expect(screen.getByText(/network address/)).toBeTruthy();
   });
+
+  it('names the STUN server that also sees the network address (P5-09, SD-11)', () => {
+    render(
+      <PeerDetails
+        peer={peer}
+        stun={['stun.cloudflare.com']}
+        canRequest
+        onRequest={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByText(/network address/).textContent).toMatch(
+      /STUN server stun\.cloudflare\.com/,
+    );
+  });
+
+  it('reminds the sender that original file metadata is kept (spec §38.6)', () => {
+    render(<PeerDetails peer={peer} canRequest onRequest={() => {}} onClose={() => {}} />);
+    expect(
+      screen.getByText(
+        'Original file metadata is preserved. Check for location or personal details before sharing.',
+      ),
+    ).toBeTruthy();
+  });
 });

@@ -36,6 +36,7 @@ describe('RequestDialog', () => {
     expect(dialog.textContent).toContain('Alex wants to connect');
     expect(dialog.textContent).toMatch(/not a verified identity/);
     expect(dialog.textContent).toMatch(/network address/);
+    expect(dialog.textContent).toMatch(/read three words aloud and type the three you hear/);
     expect(
       within(dialog)
         .getAllByRole('button')

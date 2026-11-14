@@ -2,7 +2,7 @@ import { PROTOCOL_VERSION } from '@zipply/protocol';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { ConnectionPanel } from './features/connection/ConnectionPanel';
 import type { LinkSnapshot } from './features/connection/link';
-import { iceServers } from './features/connection/peer';
+import { iceServers, stunHosts } from './features/connection/peer';
 import { RequestDialog } from './features/connection/RequestDialog';
 import {
   createDiscovery,
@@ -31,6 +31,8 @@ import { SectionHeader } from './ui/SectionHeader';
 // Dev-only `?demo=` fixtures replace live discovery; production builds compile them out.
 const demo = import.meta.env.DEV ? readDemo(window.location.search) : null;
 const WIDTH = 'mx-auto w-full max-w-[56rem] px-4 sm:px-6';
+const ICE = iceServers(import.meta.env.VITE_STUN_URLS as string | undefined);
+const STUN = stunHosts(ICE);
 
 function peerState(link: LinkSnapshot, peerId: string): PeerState {
   if (link.peerId !== peerId) return 'available';
@@ -47,7 +49,7 @@ export default function App() {
     createDiscovery({
       url: import.meta.env.VITE_SIGNALING_URL as string | undefined,
       customName: storedName(),
-      iceServers: iceServers(import.meta.env.VITE_STUN_URLS as string | undefined),
+      iceServers: ICE,
     }),
   );
   const live = useSyncExternalStore(discovery.subscribe, discovery.getSnapshot);
@@ -239,11 +241,17 @@ export default function App() {
 
       <PeerDetails
         peer={selected}
+        stun={STUN}
         canRequest={online && link.phase === 'idle'}
         onRequest={(files) => selected && discovery.request(selected.id, selected.name, files)}
         onClose={() => setSelectedId(null)}
       />
-      <RequestDialog link={link} onAccept={discovery.accept} onDecline={discovery.decline} />
+      <RequestDialog
+        link={link}
+        stun={STUN}
+        onAccept={discovery.accept}
+        onDecline={discovery.decline}
+      />
       <LiveRegion message={announcement} />
     </>
   );

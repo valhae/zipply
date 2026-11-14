@@ -16,10 +16,11 @@ beforeAll(() => {
 });
 afterEach(cleanup);
 
-const PHRASE = ['apple', 'banana', 'cherry', 'delta', 'echo', 'fox'];
+const SAY = ['apple', 'banana', 'cherry'];
 const base: Snapshot = {
   state: 'verifying',
-  phrase: PHRASE,
+  say: SAY,
+  attemptsLeft: 3,
   localConfirmed: false,
   manifest: null,
   tooLarge: false,
@@ -40,7 +41,7 @@ function fakeSession(patch: Partial<Snapshot>) {
       listeners.add(fn);
       return () => void listeners.delete(fn);
     },
-    confirm: vi.fn(),
+    checkWords: vi.fn<(typed: string) => 'ok' | 'wrong' | 'failed' | 'ignored'>(),
     mismatch: vi.fn(),
     accept: vi.fn(),
     reject: vi.fn(),
@@ -51,7 +52,7 @@ function fakeSession(patch: Partial<Snapshot>) {
 }
 
 describe('TransferView: verification', () => {
-  it('shows the six words with only Match and Mismatch controls (no skip path)', () => {
+  it('shows only the three words to read aloud, a field for the heard words, and no skip path', () => {
     const s = fakeSession({});
     render(<TransferView session={s} direction="receive" />);
     const dialog = screen.getByRole('dialog', { name: 'Verification required' });
@@ -59,24 +60,44 @@ describe('TransferView: verification', () => {
       within(dialog)
         .getAllByRole('listitem')
         .map((li) => li.textContent),
-    ).toEqual(PHRASE.map((w, i) => `${i + 1}${w}`));
+    ).toEqual(SAY);
+    // Required: an empty submit is stopped by the browser and never uses up a try.
+    expect(within(dialog).getByRole('textbox', { name: 'Words you hear' })).toHaveProperty(
+      'required',
+      true,
+    );
     const buttons = within(dialog)
       .getAllByRole('button')
       .map((b) => b.textContent);
-    expect(buttons).toEqual(['The words match', 'Mismatch — cancel']);
-    expect(screen.queryByRole('button', { name: /skip|continue|trust/i })).toBeNull();
+    expect(buttons).toEqual(['Check words', 'Mismatch — cancel']);
+    expect(screen.queryByRole('button', { name: /skip|continue|trust|match$/i })).toBeNull();
 
-    fireEvent.click(within(dialog).getByRole('button', { name: 'The words match' }));
-    expect(s.confirm).toHaveBeenCalledOnce();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Mismatch — cancel' }));
     expect(s.mismatch).toHaveBeenCalledOnce();
   });
 
+  it('checks exactly what the user typed, on submit (button or Enter)', () => {
+    const s = fakeSession({});
+    render(<TransferView session={s} direction="receive" />);
+    const field = screen.getByRole('textbox', { name: 'Words you hear' });
+    fireEvent.change(field, { target: { value: 'delta echo fox' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Check words' }));
+    fireEvent.submit(field.closest('form')!);
+    expect(s.checkWords.mock.calls).toEqual([['delta echo fox'], ['delta echo fox']]);
+  });
+
+  it('says how many tries are left after a wrong entry', () => {
+    render(<TransferView session={fakeSession({ attemptsLeft: 2 })} direction="send" />);
+    expect(screen.getByRole('alert').textContent).toMatch(/do not match.*2 tries left/);
+  });
+
   it('waits for the other person after a local confirmation', () => {
     render(<TransferView session={fakeSession({ localConfirmed: true })} direction="send" />);
-    expect(screen.queryByRole('button', { name: 'The words match' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Words you hear' })).toBeNull();
     const dialog = screen.getByRole('dialog', { name: 'Verification required' });
-    expect(within(dialog).getByText(/Waiting for the other person to confirm/)).toBeTruthy();
+    expect(
+      within(dialog).getByText(/Waiting for the other person to check your words/),
+    ).toBeTruthy();
   });
 
   it('closing the dialog because verification succeeded does not cancel', () => {
@@ -95,9 +116,9 @@ describe('TransferView: verification', () => {
     expect(s.cancel).toHaveBeenCalledOnce();
   });
 
-  it('shows no phrase and no match control before the phrase exists', () => {
-    render(<TransferView session={fakeSession({ phrase: null })} direction="receive" />);
-    expect(screen.queryByRole('button', { name: 'The words match' })).toBeNull();
+  it('shows no words and no check control before the phrase exists', () => {
+    render(<TransferView session={fakeSession({ say: null })} direction="receive" />);
+    expect(screen.queryByRole('button', { name: 'Check words' })).toBeNull();
   });
 });
 

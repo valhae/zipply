@@ -453,3 +453,82 @@ describe('unique names among visible peers (owner request, 2026-10-17)', () => {
     await visible.quiet('error');
   });
 });
+
+describe('signaling abuse (P5-06)', () => {
+  it('a client cannot pick its own peer id', async () => {
+    const c = await open();
+    c.ws.send(
+      JSON.stringify({
+        version: 1,
+        type: 'hello',
+        payload: { displayName: 'Mallory', discoverable: true, peerId: id() },
+      }),
+    );
+    expect((await c.next('error')).payload.code).toBe('INVALID_MESSAGE');
+    expect(await c.closed()).toBe(1008);
+  });
+
+  it('an oversized message is refused and the socket closed', async () => {
+    const c = await join('Big', false);
+    c.ws.send(
+      encodeMessage({
+        type: 'offer',
+        payload: { requestId: id(), connId: id(), sdp: 'x'.repeat(70_000), cO: D32 },
+      }),
+    );
+    expect((await c.next('error')).payload.code).toBe('MESSAGE_TOO_LARGE');
+    expect(await c.closed()).toBe(1008);
+  });
+
+  it('a reconnecting client gets a new id and inherits no pending request', async () => {
+    const { a, b, requestId } = await requestPair();
+    b.ws.close();
+    await a.next('cancel');
+    const again = await join('Bob');
+    expect(again.peerId).not.toBe(b.peerId);
+    again.send({ type: 'connection-response', payload: { requestId, accept: true } });
+    expect((await again.next('error')).payload.code).toBe('REQUEST_EXPIRED');
+    a.send({
+      type: 'offer',
+      payload: { requestId, connId: id(), sdp: 'v=0', cO: D32 },
+    });
+    expect((await a.next('error')).payload.code).toBe('REQUEST_EXPIRED');
+    await again.quiet('offer');
+  });
+
+  it('a stale ICE candidate after the pair ended is refused', async () => {
+    const { a, b, requestId } = await requestPair();
+    b.send({ type: 'connection-response', payload: { requestId, accept: true } });
+    await a.next('connection-response');
+    a.send({ type: 'cancel', payload: { requestId } });
+    await b.next('cancel');
+    const candidate = {
+      candidate: 'candidate:1 1 udp 1 x.local 9 typ host',
+      sdpMid: '0',
+      sdpMLineIndex: 0,
+    };
+    a.send({ type: 'ice-candidate', payload: { requestId, connId: id(), candidate } });
+    expect((await a.next('error')).payload.code).toBe('REQUEST_EXPIRED');
+    await b.quiet('ice-candidate');
+  });
+});
+
+describe('privacy (P5-07)', () => {
+  it('logs nothing during a full request, signaling and cancel exchange', async () => {
+    const methods = ['log', 'info', 'warn', 'error', 'debug', 'trace'] as const;
+    const spies = methods.map((m) => vi.spyOn(console, m));
+    try {
+      const { a, b, requestId } = await requestPair();
+      b.send({ type: 'connection-response', payload: { requestId, accept: true } });
+      await a.next('connection-response');
+      a.send({ type: 'offer', payload: { requestId, connId: id(), sdp: 'v=0', cO: D32 } });
+      await b.next('offer');
+      a.ws.send('{'); // a protocol violation is not logged either
+      await a.closed();
+      await b.next('cancel');
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spies.forEach((s) => s.mockRestore());
+    }
+  });
+});

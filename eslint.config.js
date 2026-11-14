@@ -58,6 +58,12 @@ export default tseslint.config(
   },
   { files: ['apps/web/src/**/*.tsx'], ...jsxA11y.flatConfigs.recommended },
   {
+    // P5-07: shipped code never logs (SDP, ICE, names, SAS inputs and capabilities stay out of logs).
+    files: ['apps/*/src/**/*.{ts,tsx}', 'packages/protocol/src/**/*.ts'],
+    ignores: ['**/*.test.{ts,tsx}'],
+    rules: { 'no-console': 'error' },
+  },
+  {
     files: ['apps/web/**'],
     rules: crossRuntime(
       ['**/apps/signaling/**', '**/signaling/src/**', '@zipply/signaling', '@zipply/signaling/*'],

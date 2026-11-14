@@ -20,6 +20,10 @@ export function iceServers(value: string | undefined): RTCIceServer[] {
   return urls.length ? [{ urls }] : [];
 }
 
+/** Hostnames of the STUN servers, for the IP disclosure (P5-09); they see this device's address. */
+export const stunHosts = (servers: RTCIceServer[]) =>
+  servers.flatMap((s) => [s.urls].flat()).map((url) => url.replace(/^stuns?:|:\d+$/g, ''));
+
 export interface PeerOptions {
   role: 'offerer' | 'answerer';
   /** The signaling request this connection belongs to; stamped on every outgoing signal. */

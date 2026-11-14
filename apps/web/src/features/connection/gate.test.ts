@@ -1,3 +1,4 @@
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   INITIAL_GATE,
@@ -139,5 +140,58 @@ describe('gate queries', () => {
     for (const [name, gate] of Object.entries(FIXTURES)) {
       expect(isTerminal(gate), name).toBe(TERMINAL.includes(name));
     }
+  });
+});
+
+// P5-03: no event sequence, in any order and with any values, reaches the manifest or payload
+// without a local confirmation and a remote confirmation of the same digest.
+describe('no skip path (property, P5-03)', () => {
+  const value = fc.constantFrom('a', 'b');
+  const event: fc.Arbitrary<GateEvent> = fc.oneof(
+    fc.constant({ type: 'open' } as const),
+    fc.record({ type: fc.constant('sas-ready' as const), d: value, fp: value }),
+    fc.constant({ type: 'local-confirm' } as const),
+    fc.record({ type: fc.constant('remote-confirm' as const), d: value }),
+    fc.record({ type: fc.constant('manifest' as const), digest: value, fp: value }),
+    fc.record({ type: fc.constant('accept' as const), digest: value, fp: value }),
+    fc.constant({ type: 'reject' } as const),
+    fc.constant({ type: 'complete' } as const),
+    fc.constant({ type: 'cancel' } as const),
+  );
+
+  it('manifest and payload states need both confirmations of the same digest', () => {
+    fc.assert(
+      fc.property(fc.array(event, { maxLength: 12 }), (events) => {
+        let g = INITIAL_GATE;
+        const seen: GateEvent[] = [];
+        for (const e of events) {
+          g = transition(g, e);
+          seen.push(e);
+          if (['verified', 'offered', 'transferring', 'completed', 'rejected'].includes(g.state)) {
+            const ready = seen.find((x) => x.type === 'sas-ready');
+            expect(ready).toBeDefined();
+            expect(seen.some((x) => x.type === 'local-confirm')).toBe(true);
+            expect(
+              seen.some((x) => x.type === 'remote-confirm' && x.d === (ready as { d: string }).d),
+            ).toBe(true);
+          }
+          if (canSendPayload(g)) {
+            const m = seen.find((x) => x.type === 'manifest') as { digest: string };
+            expect(seen.some((x) => x.type === 'accept' && x.digest === m.digest)).toBe(true);
+          }
+        }
+      }),
+      { numRuns: 5000 },
+    );
+  });
+
+  it('only a local-confirm event ever sets the local confirmation', () => {
+    fc.assert(
+      fc.property(fc.array(event, { maxLength: 12 }), (events) => {
+        const remoteOnly = events.filter((e) => e.type !== 'local-confirm');
+        expect(remoteOnly.reduce(transition, INITIAL_GATE).localConfirmed).toBe(false);
+      }),
+      { numRuns: 2000 },
+    );
   });
 });
