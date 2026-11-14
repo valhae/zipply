@@ -162,10 +162,23 @@ export async function verify(sender: Page, receiver: Page) {
 }
 
 export const sent = (p: Page) => p.evaluate(() => window.__sent);
-export const axe = async (p: Page) =>
-  (await new AxeBuilder({ page: p }).analyze()).violations.map(
-    (v) => `${v.impact} ${v.id}: ${v.help}`,
+/**
+ * axe once finite animations are done: mid-way through a dialog's 200 ms fade-in its text is
+ * semi-transparent and fails contrast (this failed CI on a slower runner). Infinite ones (radar) are left.
+ */
+export async function axe(p: Page) {
+  await p.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+        .map((a) => a.finished.catch(() => {})),
+    ),
   );
+  return (await new AxeBuilder({ page: p }).analyze()).violations.map(
+    (v) => `${v.impact} ${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(' ')).join(', ')})`,
+  );
+}
 export const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
 // Verified files are saved automatically (owner decision, 2026-10-17): no clicks here.

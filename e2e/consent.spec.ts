@@ -106,3 +106,28 @@ test('the verification dialog fits a 320 px phone without sideways scrolling', a
     verification(receiver).getByRole('button', { name: 'Check words' }),
   ).toBeInViewport();
 });
+
+test('assistive technology gets the names, roles and alert of the verification dialog', async ({
+  page,
+}) => {
+  const { receiver } = await toWords(page);
+  const dialog = verification(receiver);
+  await expect(dialog).toMatchAriaSnapshot(`
+    - dialog "Verification required":
+      - heading "Verification required" [level=2]
+      - paragraph: /Read these words aloud/
+      - list:
+        - listitem: /[a-z]+/
+        - listitem: /[a-z]+/
+        - listitem: /[a-z]+/
+      - textbox "Words you hear"
+      - paragraph: /Type the three words/
+      - button "Check words"
+      - button "Mismatch — cancel"
+  `);
+  await expect(dialog.getByRole('textbox')).toHaveAccessibleDescription(/Type the three words/);
+  await dialog.getByRole('textbox').fill('zoo zoo zoo');
+  await dialog.getByRole('button', { name: 'Check words' }).click();
+  // role=alert is announced by screen readers as soon as it appears.
+  await expect(dialog.getByRole('alert')).toHaveText(/do not match\. 2 tries left/);
+});

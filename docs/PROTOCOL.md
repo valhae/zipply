@@ -42,7 +42,7 @@ Display names: **one word** of 1–32 code points, NFC, with no whitespace or se
 
 ### 1.4 Private rooms
 
-The capability is 20 bytes: 16 random bytes followed by an expiry in epoch minutes (u32, big-endian), 30 minutes by default. It travels only in the page URL fragment (`#room=<capability>`), which browsers never send to servers, and in `hello`. The room verifies that `SHA-256(capability)` equals the route and that the expiry is in the future; otherwise it answers `ROOM_INVALID` and closes (`1008`). A capability sent to the public lobby is also `ROOM_INVALID`. Expiry is checked on joining; peers already in a room are not removed when the link expires.
+The capability is 20 bytes: 16 random bytes followed by an expiry in epoch minutes (u32, big-endian), 30 minutes by default. It travels only in the page URL fragment (`#room=<capability>`), which browsers never send to servers, and in `hello`. The room verifies that `SHA-256(capability)` equals the route and that the expiry is in the future; otherwise it answers `ROOM_INVALID` and closes (`1008`). A capability sent to the public lobby is also `ROOM_INVALID`. Expiry is checked on joining, and the room remembers it: the sweep (every 60 s) sends `ROOM_INVALID` and closes (`1008`) every socket of a room whose link has expired, so peers leave within a minute of expiry (R18, owner decision 2026-11-14). Everyone in a room holds the same link and leaves in the same sweep, so no signaling `cancel` is sent; a direct connection the peers already opened is not ended by the server.
 
 ### 1.5 WebRTC setup over signaling
 

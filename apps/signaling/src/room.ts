@@ -36,6 +36,8 @@ interface Pending {
 /** Everything a socket needs survives hibernation here (≤ 16 KiB); nothing goes to storage. */
 export interface Attachment {
   room: string; // private-room route hash, '' for the public lobby
+  /** Private rooms: when the invite link expires (epoch ms); the sweep then removes the socket (R18). */
+  expiresAt?: number;
   peerId?: string;
   name?: string;
   discoverable: boolean;
@@ -61,16 +63,19 @@ function b64url(bytes: Uint8Array): string {
     .replace(/=+$/, '');
 }
 
-/** SD-05: 16 random bytes + expiry (epoch minutes, u32 BE); the route is base64url(SHA-256(capability)). */
-async function capabilityValid(capability: string, routeHash: string): Promise<boolean> {
+/**
+ * SD-05: 16 random bytes + expiry (epoch minutes, u32 BE); the route is base64url(SHA-256(capability)).
+ * Returns the expiry in epoch ms, or null if the capability is wrong or expired.
+ */
+async function capabilityExpiry(capability: string, routeHash: string): Promise<number | null> {
   const bytes = Uint8Array.from(atob(capability.replace(/-/g, '+').replace(/_/g, '/')), (c) =>
     c.charCodeAt(0),
   );
-  if (bytes.length !== 20) return false;
-  const expiresMinute = new DataView(bytes.buffer).getUint32(16);
-  if (expiresMinute * 60_000 <= Date.now()) return false;
+  if (bytes.length !== 20) return null;
+  const expiresAt = new DataView(bytes.buffer).getUint32(16) * 60_000;
+  if (expiresAt <= Date.now()) return null;
   const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-  return b64url(hash) === routeHash;
+  return b64url(hash) === routeHash ? expiresAt : null;
 }
 
 /**
@@ -155,6 +160,13 @@ export class Room extends DurableObject {
   override async alarm() {
     const now = Date.now();
     for (const { ws, att } of this.live()) {
+      if (att.expiresAt !== undefined && att.expiresAt <= now) {
+        // Everyone here holds the same link, so all leave in this sweep. Dropping the pending
+        // requests first sends no signaling cancel, so a direct connection already open keeps going.
+        write(ws, { ...att, pending: [] });
+        this.reject(ws, 'ROOM_INVALID', CLOSE_POLICY);
+        continue;
+      }
       const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
       if (now - Math.max(att.seenAt, pinged) > PRESENCE_TTL_SECONDS * 1000) {
         this.leave(ws, CLOSE_EXPIRED);
@@ -168,7 +180,8 @@ export class Room extends DurableObject {
 
   private async hello(ws: WebSocket, p: Extract<ClientMessage, { type: 'hello' }>['payload']) {
     const { room } = read(ws);
-    const admitted = room ? !!p.room && (await capabilityValid(p.room, room)) : !p.room;
+    const expiresAt = room && p.room ? await capabilityExpiry(p.room, room) : null;
+    const admitted = room ? expiresAt !== null : !p.room;
     if (!admitted) return this.reject(ws, 'ROOM_INVALID', CLOSE_POLICY);
     const att = read(ws); // re-read: the await above may have let other events run
     if (att.left || att.peerId) return;
@@ -176,7 +189,13 @@ export class Room extends DurableObject {
     // Names are unique among visible peers; a duplicate joins hidden and is told NAME_TAKEN.
     const taken = p.discoverable && this.nameTaken(p.displayName, ws);
     const discoverable = p.discoverable && !taken;
-    write(ws, { ...att, peerId, name: p.displayName, discoverable });
+    write(ws, {
+      ...att,
+      peerId,
+      name: p.displayName,
+      discoverable,
+      ...(expiresAt !== null ? { expiresAt } : {}),
+    });
     this.send(ws, {
       type: 'hello-accepted',
       payload: {
