@@ -319,6 +319,23 @@ describe('connection requests and signal routing (P4-04)', () => {
     expect((await b.next('error')).payload.code).toBe('REQUEST_EXPIRED');
   });
 
+  it('an accepted pair stays routable after the request lifetime, for ICE restarts (D20)', async () => {
+    const { a, b, requestId } = await requestPair();
+    b.send({ type: 'connection-response', payload: { requestId, accept: true } });
+    await a.next('connection-response');
+    // Long after acceptance (expiry in the past) and after a sweep, a restart offer still routes.
+    await editAttachments(publicRoom(), (att) => att.pending.forEach((p) => (p.expiresAt = 0)));
+    await runDurableObjectAlarm(publicRoom());
+    const offer = { requestId, connId: id(), sdp: 'v=0', cO: D32 };
+    a.send({ type: 'offer', payload: offer });
+    expect((await b.next('offer')).payload).toEqual(offer);
+    // It still ends on cancel, and then nothing routes.
+    a.send({ type: 'cancel', payload: { requestId } });
+    await b.next('cancel');
+    a.send({ type: 'offer', payload: offer });
+    expect((await a.next('error')).payload.code).toBe('REQUEST_EXPIRED');
+  });
+
   it('a disconnect cancels the pair’s pending request for the other side', async () => {
     const { a, b, requestId } = await requestPair();
     a.ws.close();

@@ -2,6 +2,7 @@ import { encodeMessage, isValidDisplayName, type ServerMessage } from '@zipply/p
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createDiscovery,
+  findPeer,
   forgetName,
   randomPixelName,
   rememberName,
@@ -196,5 +197,17 @@ describe('remembered custom name (this device only)', () => {
     expect(() => rememberName('Mar')).not.toThrow();
     expect(() => forgetName()).not.toThrow();
     expect(storedName()).toBeNull();
+  });
+});
+
+describe('findPeer (reconnect, P6-05)', () => {
+  const peers = [
+    { peerId: 'A', displayName: 'PixlByte' },
+    { peerId: 'B', displayName: 'VoxlBlip' },
+  ];
+  it('prefers the same id, then the same name (a locator only; the words verify)', () => {
+    expect(findPeer(peers, 'B', 'Other')).toEqual(peers[1]);
+    expect(findPeer(peers, 'gone', 'pixlbyte')).toEqual(peers[0]);
+    expect(findPeer(peers, 'gone', 'Nobody')).toBeUndefined();
   });
 });

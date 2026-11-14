@@ -2,7 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { sha256, toB64url } from '../connection/sas';
 import { encodeChunk, type ChunkHeader } from './frames';
-import { ACK_EVERY, createReceiver, exceedsCap, safeFilename, type Manifest } from './receiver';
+import { ACK_EVERY, createReceiver, type Manifest } from './receiver';
+import { memorySink, type Sink } from './sinks';
 
 const ID = 'AAECAwQFBgcICQoLDA0ODw';
 const CHUNK = 1024;
@@ -94,10 +95,36 @@ describe('receiver: rejects malformed or out-of-order input', () => {
     });
   });
 
-  it('duplicate chunk → protocol violation', async () => {
+  it('duplicate chunk with the same digest is acknowledged without rewriting (SD-07)', async () => {
     const s = await setup();
     await s.r.chunk(s.encoded[0]!);
-    expect(await s.r.chunk(s.encoded[0]!)).toEqual({ ok: false, reason: 'protocol' });
+    await s.r.chunk(s.encoded[1]!);
+    expect(await s.r.chunk(s.encoded[0]!)).toEqual({ ok: true, ack: false });
+    expect(s.r.confirmed).toBe(2 * CHUNK);
+    await s.r.chunk(s.encoded[2]!);
+    expect(await s.r.fileEnd(0, s.root)).toMatchObject({ ok: true });
+    expect(new Uint8Array(await s.r.blobs[0]!.arrayBuffer())).toEqual(
+      new Uint8Array(s.frames.flatMap((f) => [...f.payload])),
+    );
+  });
+
+  it('duplicate chunk with a different digest → integrity failure', async () => {
+    const s = await setup();
+    await s.r.chunk(s.encoded[0]!);
+    await s.r.chunk(s.encoded[1]!);
+    const other = random(CHUNK);
+    const forged = encodeChunk({ ...s.frames[0]!.header, digest: await sha256(other) }, other);
+    expect(await s.r.chunk(forged)).toEqual({ ok: false, reason: 'integrity' });
+  });
+
+  it('a chunk before the next expected one at another offset → protocol violation', async () => {
+    const s = await setup();
+    await s.r.chunk(s.encoded[0]!);
+    await s.r.chunk(s.encoded[1]!);
+    expect(await s.r.chunk(tamper(s.frames[0]!, { offset: 5 }))).toEqual({
+      ok: false,
+      reason: 'protocol',
+    });
   });
 
   it('bytes beyond the declared size → protocol violation', async () => {
@@ -144,32 +171,104 @@ describe('receiver: rejects malformed or out-of-order input', () => {
   });
 });
 
-describe('exceedsCap', () => {
-  it('compares the manifest total with the cap', () => {
-    expect(exceedsCap(manifest(100, 28), 128)).toBe(false);
-    expect(exceedsCap(manifest(100, 29), 128)).toBe(true);
+/** Memory sink with hooks to corrupt or fail writes, for fault injection. */
+function faultySink(fault: { flip?: number; failAt?: number } = {}) {
+  const inner = memorySink();
+  let written = 0;
+  const truncates: [number, number][] = [];
+  const sink: Sink = {
+    ...inner,
+    async write(fileIdx, offset, data) {
+      if (fault.failAt !== undefined && written + data.length > fault.failAt) {
+        throw new DOMException('quota', 'QuotaExceededError');
+      }
+      const copy = data.slice();
+      if (fault.flip !== undefined && fault.flip >= written && fault.flip < written + data.length) {
+        copy[fault.flip - written]! ^= 1;
+      }
+      written += data.length;
+      return inner.write(fileIdx, offset, copy);
+    },
+    truncate(fileIdx, size) {
+      truncates.push([fileIdx, size]);
+      return inner.truncate(fileIdx, size);
+    },
+  };
+  return { sink, truncates };
+}
+
+describe('receiver: sink and read-back (P6-01, P6-02)', () => {
+  it('a byte flipped by the sink fails the read-back and is never offered', async () => {
+    const data = random(3 * CHUNK + 5);
+    const { sink } = faultySink({ flip: CHUNK + 7 });
+    const r = createReceiver(manifest(data.length), sink);
+    const { encoded, root } = await chunksOf(data, 0);
+    for (const f of encoded) expect(await r.chunk(f)).toMatchObject({ ok: true });
+    expect(await r.fileEnd(0, root)).toEqual({ ok: false, reason: 'integrity' });
+    expect(r.blobs).toHaveLength(0);
+    expect(r.done).toBe(false);
+  });
+
+  it('a stored file of the wrong size fails the read-back', async () => {
+    const data = random(2 * CHUNK);
+    const inner = memorySink();
+    const sink: Sink = { ...inner, close: async () => new Blob([data.subarray(0, CHUNK)]) };
+    const r = createReceiver(manifest(data.length), sink);
+    const { encoded, root } = await chunksOf(data, 0);
+    for (const f of encoded) await r.chunk(f);
+    expect(await r.fileEnd(0, root)).toEqual({ ok: false, reason: 'integrity' });
+  });
+
+  it('a failed write stops with a storage failure and confirms nothing more', async () => {
+    const data = random(4 * CHUNK);
+    const { sink } = faultySink({ failAt: 2 * CHUNK + 1 });
+    const r = createReceiver(manifest(data.length), sink);
+    const { encoded } = await chunksOf(data, 0);
+    expect(await r.chunk(encoded[0]!)).toMatchObject({ ok: true });
+    expect(await r.chunk(encoded[1]!)).toMatchObject({ ok: true });
+    expect(await r.chunk(encoded[2]!)).toEqual({ ok: false, reason: 'storage' });
+    expect(r.confirmed).toBe(2 * CHUNK);
+  });
+
+  it('acks at a configurable checkpoint interval', async () => {
+    const data = random(10 * CHUNK);
+    const r = createReceiver(manifest(data.length), memorySink(), 3 * CHUNK);
+    const acks: number[] = [];
+    for (const f of (await chunksOf(data, 0)).encoded) {
+      const result = await r.chunk(f);
+      if (result.ok && result.ack) acks.push(r.confirmed);
+    }
+    expect(acks).toEqual([3 * CHUNK, 6 * CHUNK, 9 * CHUNK]);
   });
 });
 
-describe('safeFilename', () => {
-  it.each([
-    ['report.pdf', 'report.pdf'],
-    ['../../etc/passwd', '_.._etc_passwd'],
-    ['C:\\Windows\\evil.exe', 'C__Windows_evil.exe'],
-    ['a<b>c:d"e|f?g*h', 'a_b_c_d_e_f_g_h'],
-    ['photo\u202Egnp.exe', 'photognp.exe'],
-    ['bell\u0007\nname.txt', 'bellname.txt'],
-    ['  .hidden. ', 'hidden'],
-    ['CON', '_CON'],
-    ['nul.txt', '_nul.txt'],
-    ['', 'file'],
-    ['...', 'file'],
-    ['Bücher 📚.txt', 'Bücher 📚.txt'],
-  ])('%j → %j', (input, expected) => {
-    expect(safeFilename(input)).toBe(expected);
+describe('receiver: resume (P6-03, P6-05)', () => {
+  it('rewind truncates the unconfirmed tail and continues byte-exact from there', async () => {
+    const files = [random(2 * CHUNK + 3), random(5 * CHUNK + 1)];
+    const { sink, truncates } = faultySink();
+    const r = createReceiver(manifest(...files.map((f) => f.length)), sink);
+    const first = await chunksOf(files[0]!, 0);
+    for (const f of first.encoded) await r.chunk(f);
+    await r.fileEnd(0, first.root);
+    const second = await chunksOf(files[1]!, 1);
+    for (const f of second.encoded.slice(0, 3)) await r.chunk(f);
+
+    expect(await r.rewind()).toEqual({ fileIdx: 1, offset: 3 * CHUNK });
+    expect(truncates).toEqual([[1, 3 * CHUNK]]);
+    for (const f of second.encoded.slice(3)) expect(await r.chunk(f)).toMatchObject({ ok: true });
+    expect(await r.fileEnd(1, second.root)).toMatchObject({ ok: true });
+    expect(r.done).toBe(true);
+    for (const [i, blob] of r.blobs.entries()) {
+      expect(new Uint8Array(await blob.arrayBuffer())).toEqual(files[i]);
+    }
   });
 
-  it('limits length to 200 code points', () => {
-    expect([...safeFilename('x'.repeat(500))]).toHaveLength(200);
+  it('rewind at a file boundary points at the next file', async () => {
+    const data = random(CHUNK);
+    const r = createReceiver(manifest(data.length, 10));
+    const { encoded, root } = await chunksOf(data, 0);
+    await r.chunk(encoded[0]!);
+    await r.fileEnd(0, root);
+    expect(await r.rewind()).toEqual({ fileIdx: 1, offset: 0 });
   });
 });

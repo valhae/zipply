@@ -1,5 +1,6 @@
 import { sha256, toB64url } from '../connection/sas';
 import { decodeChunk, type FileEntry } from './frames';
+import { memorySink, type Sink } from './sinks';
 
 export const ACK_EVERY = 1024 * 1024;
 export const DEFAULT_RECEIVE_CAP = 256 * 1024 * 1024;
@@ -10,27 +11,41 @@ export interface Manifest {
   files: FileEntry[];
 }
 
-export type ReceiveResult =
-  { ok: true; ack: boolean } | { ok: false; reason: 'protocol' | 'integrity' };
+export type Failure = 'protocol' | 'integrity' | 'storage';
+export type ReceiveResult = { ok: true; ack: boolean } | { ok: false; reason: Failure };
 
 export const exceedsCap = (m: Manifest, cap: number) =>
   m.files.reduce((n, f) => n + f.size, 0) > cap;
 
-const bad = (reason: 'protocol' | 'integrity'): ReceiveResult => ({ ok: false, reason });
+const READ_BACK_BYTES = 4 * 1024 * 1024;
+const bad = (reason: Failure): ReceiveResult => ({ ok: false, reason });
 const equal = (a: Uint8Array, b: Uint8Array) =>
   a.length === b.length && a.every((x, i) => x === b[i]);
 
+/** SD-06 read-back: the committed file must have the declared size and every chunk's digest. */
+async function readBack(stored: Blob, digests: Uint8Array[], chunk: number, size: number) {
+  if (stored.size !== size || digests.length !== Math.ceil(size / chunk)) return false;
+  const step = Math.max(1, Math.floor(READ_BACK_BYTES / chunk)) * chunk;
+  for (let start = 0, i = 0; start < size; start += step) {
+    const bytes = new Uint8Array(await stored.slice(start, start + step).arrayBuffer());
+    for (let o = 0; o < bytes.length; o += chunk, i++) {
+      if (!equal(await sha256(bytes.subarray(o, o + chunk)), digests[i]!)) return false;
+    }
+  }
+  return true;
+}
+
 /**
- * Memory sink for one manifest (P3; large files move to disk sinks in P6). Every chunk must be the
- * next expected one, with the exact expected length and a matching SHA-256; anything else fails.
- * Calls must be serialized by the caller (each awaits a digest).
+ * Receives one manifest into a sink. Every chunk must be the next expected one, with the exact
+ * expected length and a matching SHA-256, before it is written; a repeat of a verified chunk is
+ * acknowledged without writing (SD-07); anything else fails. A file counts only after its root
+ * matches and the committed copy reads back intact. Calls must be serialized by the caller.
  */
-export function createReceiver(m: Manifest) {
+export function createReceiver(m: Manifest, sink: Sink = memorySink(), ackEvery = ACK_EVERY) {
   let fileIdx = 0;
-  let received = 0; // bytes of the current file
-  let confirmed = 0; // verified bytes across all files
+  let received = 0; // verified, written bytes of the current file
+  let confirmed = 0; // verified, written bytes across all files
   let lastAck = 0;
-  let parts: Uint8Array[] = [];
   let digests: Uint8Array[] = [];
   const blobs: Blob[] = [];
 
@@ -48,24 +63,31 @@ export function createReceiver(m: Manifest) {
       const file = m.files[fileIdx];
       if (!decoded || !file) return bad('protocol');
       const { header: h, payload } = decoded;
-      const expectedLen = Math.min(m.chunkSize, file.size - received);
+      if (h.transferId !== m.transferId || h.fileIdx !== fileIdx) return bad('protocol');
+      const offset = h.chunkIdx < digests.length ? h.chunkIdx * m.chunkSize : received;
+      const expectedLen = Math.min(m.chunkSize, file.size - offset);
       if (
-        h.transferId !== m.transferId ||
-        h.fileIdx !== fileIdx ||
-        h.chunkIdx !== parts.length ||
-        h.offset !== received ||
+        h.chunkIdx > digests.length ||
+        h.offset !== offset ||
         expectedLen <= 0 ||
         payload.length !== expectedLen ||
-        h.final !== (received + expectedLen === file.size)
+        h.final !== (offset + expectedLen === file.size)
       ) {
         return bad('protocol');
       }
       if (!equal(await sha256(payload), h.digest)) return bad('integrity');
-      parts.push(payload);
+      if (h.chunkIdx < digests.length) {
+        return equal(h.digest, digests[h.chunkIdx]!) ? { ok: true, ack: false } : bad('integrity');
+      }
+      try {
+        await sink.write(fileIdx, received, payload);
+      } catch {
+        return bad('storage');
+      }
       digests.push(h.digest);
       received += payload.length;
       confirmed += payload.length;
-      const ack = confirmed - lastAck >= ACK_EVERY;
+      const ack = confirmed - lastAck >= ackEvery;
       if (ack) lastAck = confirmed;
       return { ok: true, ack };
     },
@@ -74,28 +96,27 @@ export function createReceiver(m: Manifest) {
       const file = m.files[fileIdx];
       if (!file || idx !== fileIdx || received !== file.size) return bad('protocol');
       if (toB64url(await sha256(...digests)) !== root) return bad('integrity');
-      // Inert download: never the sender's MIME type, so nothing renders or runs in our origin.
-      blobs.push(new Blob(parts as BlobPart[], { type: 'application/octet-stream' }));
-      parts = [];
+      let stored: Blob;
+      try {
+        stored = await sink.close(fileIdx);
+        if (!(await readBack(stored, digests, m.chunkSize, file.size))) return bad('integrity');
+      } catch {
+        return bad('storage');
+      }
+      blobs.push(stored);
       digests = [];
       received = 0;
       fileIdx++;
       lastAck = confirmed;
       return { ok: true, ack: true };
     },
+
+    /** Resume: drops any unconfirmed tail and returns where the sender must continue. */
+    async rewind() {
+      if (fileIdx < m.files.length) await sink.truncate(fileIdx, received);
+      return { fileIdx, offset: received };
+    },
+
+    abort: () => sink.abort(),
   };
-}
-
-const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
-
-/** A name safe to show and to suggest for download: no paths, controls, bidi tricks or device names. */
-export function safeFilename(name: string): string {
-  const cleaned = name
-    .normalize('NFC')
-    .replace(/[\p{Cc}\p{Cf}]/gu, '')
-    .replace(/[<>:"/\\|?*]/g, '_')
-    .replace(/^[\s.]+|[\s.]+$/g, '');
-  const short = [...cleaned].slice(0, 200).join('');
-  if (!short) return 'file';
-  return RESERVED.test(short) ? `_${short}` : short;
 }

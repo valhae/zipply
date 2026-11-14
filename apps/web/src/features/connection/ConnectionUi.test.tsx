@@ -3,6 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ConnectionPanel } from './ConnectionPanel';
 import { IDLE_LINK, type LinkSnapshot } from './link';
 import { RequestDialog } from './RequestDialog';
+import type { Session } from './session';
 
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () {
@@ -57,6 +58,20 @@ describe('RequestDialog', () => {
       />,
     );
     expect(document.querySelector('img')).toBeNull();
+  });
+
+  it('says when accepting would continue a paused transfer (P6-05)', () => {
+    const session = { getSnapshot: () => ({ state: 'paused' }) } as unknown as Session;
+    render(
+      <RequestDialog
+        link={link({ phase: 'incoming', session })}
+        onAccept={() => {}}
+        onDecline={() => {}}
+      />,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Connection request' });
+    expect(dialog.textContent).toMatch(/paused transfer/);
+    expect(dialog.textContent).toMatch(/check new words/);
   });
 
   it('is closed outside the incoming phase', () => {
@@ -114,5 +129,27 @@ describe('ConnectionPanel', () => {
       </>,
     );
     expect(container.textContent).toBe('');
+  });
+
+  it('a reconnect attempt that ended is explained above the paused transfer', () => {
+    const snap = { state: 'paused', progress: null, downloads: [], say: null };
+    const session = {
+      role: 'offerer',
+      getSnapshot: () => snap,
+      subscribe: () => () => {},
+      debug: () => ({}),
+    } as unknown as Session;
+    const onReconnect = vi.fn();
+    render(
+      <ConnectionPanel
+        link={link({ phase: 'session', session, role: 'offerer', notice: 'declined' })}
+        onCancel={() => {}}
+        onDismiss={() => {}}
+        onReconnect={onReconnect}
+      />,
+    );
+    expect(screen.getByText(/Alex declined the connection/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
+    expect(onReconnect).toHaveBeenCalledOnce();
   });
 });

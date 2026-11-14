@@ -38,10 +38,15 @@ export const IDLE_LINK: LinkSnapshot = {
   notice: null,
 };
 
+const TERMINAL = ['completed', 'rejected', 'canceled', 'failed'];
+const live = (s: Session | null): s is Session => !!s && !TERMINAL.includes(s.getSnapshot().state);
+
 /**
  * One connection at a time over signaling: request → response → offer/answer/ICE → DataChannel
- * session. Only a local user action (request, accept) can start a connection. A signaling `cancel`
- * is advisory (SD-04): it may stop a connection, never start or accept one.
+ * session. Only a local user action (request, accept, reconnect) can start a connection. A
+ * signaling `cancel` is advisory (SD-04): it may stop a connection that has no open DataChannel
+ * yet, never start or accept one; once the channel is open its own cancel is the authenticated one
+ * (D20). A paused transfer (P6-05) keeps its session while a new connection is requested for it.
  */
 export function createLink(o: LinkOptions) {
   const createPeer = o.createPeer ?? realCreatePeer;
@@ -55,21 +60,32 @@ export function createLink(o: LinkOptions) {
     snap = { ...snap, ...next };
     listeners.forEach((fn) => fn());
   };
+  /** Ends an attempt; a paused transfer stays on screen so the user can try again. */
   const end = (notice: LinkSnapshot['notice']) => {
     clearTimeout(expiry);
     const p = peer;
     peer = null;
     p?.close();
-    update({ phase: 'ended', notice });
+    update({ phase: live(snap.session) ? 'session' : 'ended', notice });
   };
+  const paused = (role: 'offerer' | 'answerer') =>
+    snap.phase === 'session' &&
+    snap.session?.role === role &&
+    snap.session.getSnapshot().state === 'paused';
 
   function startPeer(role: 'offerer' | 'answerer') {
     const requestId = snap.requestId!;
+    const resume = live(snap.session) ? snap.session : undefined;
+    // An earlier connection of a paused transfer goes first, while the session ignores it.
+    const old = peer;
+    peer = null;
+    old?.close();
     update({ phase: 'connecting', role });
     const p = createPeer({
       role,
       requestId,
       iceServers: o.iceServers,
+      resume,
       files: role === 'offerer' ? files : undefined,
       send: (signal) => o.presence.send(signal),
       onSession: (session) => update({ phase: 'session', session }),
@@ -85,7 +101,7 @@ export function createLink(o: LinkOptions) {
     const ours = 'requestId' in m.payload && m.payload.requestId === snap.requestId;
     switch (m.type) {
       case 'connection-request':
-        if (snap.phase !== 'idle') {
+        if (snap.phase !== 'idle' && !paused('answerer')) {
           o.presence.send({
             type: 'connection-response',
             payload: { requestId: m.payload.requestId, accept: false },
@@ -99,6 +115,8 @@ export function createLink(o: LinkOptions) {
           peerId: m.payload.fromPeerId,
           peerName: m.payload.displayName,
           expiresAt: m.payload.expiresAt,
+          // A paused receiver may be asked to reconnect; the request itself proves nothing (D4).
+          ...(paused('answerer') ? { session: snap.session, role: 'answerer' as const } : {}),
         });
         clearTimeout(expiry);
         expiry = setTimeout(
@@ -117,9 +135,11 @@ export function createLink(o: LinkOptions) {
         if (ours) peer?.handle(m);
         return;
       case 'cancel':
-        if (ours && ['requesting', 'incoming', 'connecting', 'session'].includes(snap.phase)) {
-          if (snap.phase === 'session') peer?.close();
-          else end('canceled');
+        if (!ours) return;
+        if (snap.phase === 'session') {
+          if (snap.session?.getSnapshot().state === 'connecting') peer?.close();
+        } else if (['requesting', 'incoming', 'connecting'].includes(snap.phase)) {
+          end('canceled');
         }
         return;
       case 'error':
@@ -146,6 +166,25 @@ export function createLink(o: LinkOptions) {
       });
       if (!sent) end('unavailable');
     },
+    /**
+     * Local action for a paused sending transfer: request a new connection to the receiver, who
+     * may have a new id after a signaling reconnect. The old pair is ended first.
+     */
+    reconnect(peerId: string, peerName: string): boolean {
+      if (!paused('offerer')) return false;
+      const old = peer;
+      peer = null;
+      old?.close(); // a paused session ignores this
+      o.presence.send({ type: 'cancel', payload: { requestId: snap.requestId! } });
+      const requestId = toB64url(randomBytes(16));
+      update({ phase: 'requesting', requestId, peerId, peerName, notice: null });
+      const sent = o.presence.send({
+        type: 'connection-request',
+        payload: { requestId, targetPeerId: peerId },
+      });
+      if (!sent) end('unavailable');
+      return true;
+    },
     /** Local action: accept the incoming connection (not the files; that comes after the SAS). */
     accept() {
       if (snap.phase !== 'incoming') return;
@@ -163,7 +202,7 @@ export function createLink(o: LinkOptions) {
         type: 'connection-response',
         payload: { requestId: snap.requestId!, accept: false },
       });
-      update(IDLE_LINK);
+      update(live(snap.session) ? { phase: 'session' } : IDLE_LINK);
     },
     /** Withdraws a request or stops a connection; an active transfer is canceled on its DataChannel too. */
     cancel() {
@@ -175,11 +214,15 @@ export function createLink(o: LinkOptions) {
       const p = peer;
       peer = null;
       p?.close();
-      update(IDLE_LINK);
+      // Withdrawing a reconnect attempt leaves the paused transfer; its own Cancel ends it.
+      update(live(snap.session) ? { phase: 'session' } : IDLE_LINK);
     },
-    /** Clears a finished attempt and releases its resources. */
+    /** Clears a finished attempt, ends its server pair (D20) and releases its resources. */
     dismiss() {
       clearTimeout(expiry);
+      if (snap.phase === 'session') {
+        o.presence.send({ type: 'cancel', payload: { requestId: snap.requestId! } });
+      }
       snap.session?.dispose();
       const p = peer;
       peer = null;

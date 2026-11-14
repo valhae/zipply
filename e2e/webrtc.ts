@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { createHash } from 'node:crypto';
+import dgram from 'node:dgram';
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Download, type Page, type TestInfo } from '@playwright/test';
 
@@ -10,6 +11,8 @@ import { expect, test, type Download, type Page, type TestInfo } from '@playwrig
 declare global {
   interface Window {
     __sent: { manifestBytes: number; payloadBytes: number; controls: string[] };
+    /** Every DataChannel the app opened, so a test can break a connection (P6-05). */
+    __dcs: RTCDataChannel[];
   }
 }
 
@@ -33,7 +36,7 @@ export interface Frame {
   type: string;
   payload: Record<string, unknown>;
 }
-type Rewrite = (frame: Frame) => Frame | null;
+type Rewrite = (frame: Frame) => Frame | null | Promise<Frame | null>;
 
 /**
  * Puts a test proxy on a page's signaling WebSocket, playing a malicious or curious signaling
@@ -44,15 +47,24 @@ export async function proxySignaling(page: Page, rules: { up?: Rewrite; down?: R
   const log = { up: [] as Frame[], down: [] as Frame[] };
   let toPage: ((text: string) => void) | null = null;
   let toServer: ((text: string) => void) | null = null;
+  let drop = () => {};
+  // Rewrites may be async; a chain per socket keeps frames in order.
   const pipe =
-    (dir: 'up' | 'down', rewrite: Rewrite | undefined, send: (t: string) => void) =>
+    (
+      dir: 'up' | 'down',
+      rewrite: Rewrite | undefined,
+      send: (t: string) => void,
+      chain = { done: Promise.resolve() },
+    ) =>
     (message: string | Buffer) => {
       const text = message.toString();
-      if (!text.startsWith('{')) return send(text); // heartbeat ping/pong
-      const frame = JSON.parse(text) as Frame;
-      log[dir].push(frame);
-      const out = rewrite ? rewrite(frame) : frame;
-      if (out) send(JSON.stringify(out));
+      chain.done = chain.done.then(async () => {
+        if (!text.startsWith('{')) return send(text); // heartbeat ping/pong
+        const frame = JSON.parse(text) as Frame;
+        log[dir].push(frame);
+        const out = rewrite ? await rewrite(frame) : frame;
+        if (out) send(JSON.stringify(out));
+      });
     };
   await page.routeWebSocket(/\/ws(\/|$)/, (ws) => {
     const server = ws.connectToServer();
@@ -60,9 +72,15 @@ export async function proxySignaling(page: Page, rules: { up?: Rewrite; down?: R
     toServer = (t) => server.send(t);
     ws.onMessage(pipe('up', rules.up, toServer));
     server.onMessage(pipe('down', rules.down, toPage));
+    drop = () => {
+      void ws.close();
+      void server.close();
+    };
   });
   return {
     log,
+    /** Signaling is lost: both sides of the current socket close; the app reconnects by itself. */
+    drop: () => drop(),
     inject(dir: 'up' | 'down', type: string, payload: Record<string, unknown>) {
       const text = JSON.stringify({ version: 1, type, payload });
       (dir === 'up' ? toServer : toPage)!(text);
@@ -81,6 +99,16 @@ export async function openTabs(
   const context = page.context();
   await context.addInitScript(() => {
     window.__sent = { manifestBytes: 0, payloadBytes: 0, controls: [] };
+    window.__dcs = [];
+    const create = RTCPeerConnection.prototype.createDataChannel;
+    RTCPeerConnection.prototype.createDataChannel = function (
+      this: RTCPeerConnection,
+      ...args: Parameters<RTCPeerConnection['createDataChannel']>
+    ) {
+      const dc = create.apply(this, args);
+      window.__dcs.push(dc);
+      return dc;
+    };
     const send = RTCDataChannel.prototype.send;
     RTCDataChannel.prototype.send = function (this: RTCDataChannel, data: unknown) {
       if (typeof data === 'string') {
@@ -194,4 +222,72 @@ export async function downloads(receiver: Page, expected: { name: string; buffer
   for (const [i, file] of expected.entries()) {
     expect(sha(await readFile((await got[i]!.path())!))).toBe(sha(file.buffer));
   }
+}
+
+/**
+ * A UDP relay between two pages on this machine, so a test can cut the real data path (P6-04/05):
+ * Playwright's offline emulation does not reach WebRTC (spike, 2026-11-14). Each page's host
+ * candidates are rewritten over signaling to a relay socket on the same address; the relay
+ * forwards packets between them while `up` is true. Needs raw IP candidates
+ * (`--disable-features=WebRtcHideLocalIpsWithMdns`); TCP, IPv6 and non-host candidates are dropped.
+ */
+export function udpRelay() {
+  const relays = new Map<string, Promise<dgram.Socket>>();
+  const state = { up: true, packets: 0 };
+  const split = (addr: string) => {
+    const i = addr.lastIndexOf(':');
+    return [addr.slice(0, i), Number(addr.slice(i + 1))] as const;
+  };
+  function relay(real: string): Promise<dgram.Socket> {
+    let r = relays.get(real);
+    if (!r) {
+      r = new Promise((resolve) => {
+        const socket = dgram.createSocket('udp4');
+        socket.on('message', (msg, from) => {
+          if (!state.up) return;
+          state.packets++;
+          // Forward from the sender's own relay socket, which is the address the receiver knows.
+          void relay(`${from.address}:${from.port}`).then((back) => {
+            const [host, port] = split(real);
+            back.send(msg, port, host);
+          });
+        });
+        socket.bind(0, split(real)[0], () => resolve(socket));
+      });
+      relays.set(real, r);
+    }
+    return r;
+  }
+  const CRLF = '\r\n';
+  const HOST = /^(a=)?(candidate:\S+ \d+ udp \d+ )(\d+\.\d+\.\d+\.\d+) (\d+)( typ host.*)$/i;
+  async function line(text: string): Promise<string | null> {
+    const m = HOST.exec(text);
+    if (!m) return null;
+    const port = (await relay(`${m[3]}:${m[4]}`)).address().port;
+    return `${m[1] ?? ''}${m[2]}${m[3]} ${port}${m[5]}`;
+  }
+  /** Signaling rewrite for `proxySignaling({ up })` on both pages. */
+  async function rewrite(frame: Frame): Promise<Frame | null> {
+    const p = frame.payload as { sdp?: string; candidate?: { candidate: string } };
+    if (frame.type === 'ice-candidate' && p.candidate) {
+      const c = await line(p.candidate.candidate);
+      return c
+        ? { ...frame, payload: { ...p, candidate: { ...p.candidate, candidate: c } } }
+        : null;
+    }
+    if ((frame.type === 'offer' || frame.type === 'answer') && p.sdp) {
+      const lines = await Promise.all(
+        p.sdp.split(CRLF).map(async (l) => (l.startsWith('a=candidate:') ? await line(l) : l)),
+      );
+      return { ...frame, payload: { ...p, sdp: lines.filter((l) => l !== null).join(CRLF) } };
+    }
+    return frame;
+  }
+  return {
+    state,
+    rewrite,
+    async close() {
+      for (const r of relays.values()) (await r).close();
+    },
+  };
 }

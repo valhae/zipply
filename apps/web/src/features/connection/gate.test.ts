@@ -26,10 +26,15 @@ const EVENTS: Record<string, GateEvent> = {
   complete: { type: 'complete' },
   cancel: { type: 'cancel' },
   fail: { type: 'fail', reason: 'closed' },
+  lost: { type: 'lost' },
+  reattach: { type: 'reattach' },
+  resume: { type: 'resume', fp: FP },
 };
 
 const run = (...names: string[]): Gate =>
   names.reduce((g, n) => transition(g, EVENTS[n]!), INITIAL_GATE);
+
+const TRANSFER = ['open', 'sas-ready', 'local-confirm', 'remote-confirm', 'manifest', 'accept'];
 
 const FIXTURES: Record<string, Gate> = {
   connecting: run(),
@@ -52,6 +57,19 @@ const FIXTURES: Record<string, Gate> = {
   rejected: run('open', 'sas-ready', 'local-confirm', 'remote-confirm', 'manifest', 'reject'),
   canceled: run('cancel'),
   failed: run('fail'),
+  // P6-05: a transfer paused by a lost connection, then a new connection for it (D4).
+  paused: run('open', 'sas-ready', 'local-confirm', 'remote-confirm', 'manifest', 'accept', 'lost'),
+  'connecting+resume': run(...TRANSFER, 'lost', 'reattach'),
+  'verifying+resume': run(...TRANSFER, 'lost', 'reattach', 'open'),
+  'verified+resume': run(
+    ...TRANSFER,
+    'lost',
+    'reattach',
+    'open',
+    'sas-ready',
+    'local-confirm',
+    'remote-confirm',
+  ),
 };
 
 // Expected state after each event; anything not listed is illegal and must fail closed.
@@ -63,8 +81,14 @@ const LEGAL: Record<string, Partial<Record<string, GateState>>> = {
   'verifying+remote': { 'local-confirm': 'verified' },
   verified: { manifest: 'offered' },
   offered: { accept: 'transferring', reject: 'rejected' },
-  transferring: { complete: 'completed' },
+  transferring: { complete: 'completed', lost: 'paused' },
+  paused: { reattach: 'connecting' },
+  'connecting+resume': { open: 'verifying' },
+  'verifying+resume': { 'sas-ready': 'verifying' },
+  'verified+resume': { resume: 'transferring' },
 };
+// Before the transfer resumes, a failure on the new connection leaves the transfer paused.
+const RESUMING = ['connecting+resume', 'verifying+resume', 'verified+resume'];
 const TERMINAL = ['completed', 'rejected', 'canceled', 'failed'];
 
 describe('gate fixtures', () => {
@@ -79,12 +103,13 @@ describe('gate transitions (exhaustive)', () => {
       const terminal = TERMINAL.includes(name);
       const expected = terminal
         ? gate.state // absorbing
-        : (LEGAL[name]?.[eventName] ?? (eventName === 'cancel' ? 'canceled' : 'failed'));
+        : (LEGAL[name]?.[eventName] ??
+          (eventName === 'cancel' ? 'canceled' : RESUMING.includes(name) ? 'paused' : 'failed'));
       it(`${name} + ${eventName} → ${expected}`, () => {
         const next = transition(gate, event);
         expect(next.state).toBe(expected);
         if (terminal) expect(next).toBe(gate);
-        if (!terminal && expected === 'failed' && eventName !== 'fail') {
+        if (!terminal && expected === 'failed' && !['fail', 'lost'].includes(eventName)) {
           expect(next.reason).toBe('protocol');
         }
       });
@@ -129,6 +154,53 @@ describe('gate payload checks fail closed', () => {
   });
 });
 
+describe('gate resume (P6-05, D4)', () => {
+  it('a new connection starts the word check from scratch but keeps the accepted manifest', () => {
+    const g = FIXTURES['connecting+resume']!;
+    expect(g).toMatchObject({
+      d: null,
+      fp: null,
+      localConfirmed: false,
+      remoteConfirmed: false,
+      manifestDigest: M,
+    });
+    expect(g.reason).toBeUndefined();
+  });
+
+  it('resume needs the fingerprints the words were computed from', () => {
+    const g = transition(FIXTURES['verified+resume']!, { type: 'resume', fp: 'fp-2' });
+    expect(g).toMatchObject({ state: 'paused', reason: 'fingerprint' });
+  });
+
+  it('a resumed connection cannot offer a new manifest', () => {
+    const g = transition(FIXTURES['verified+resume']!, EVENTS.manifest!);
+    expect(g.state).toBe('paused');
+  });
+
+  it('a fresh connection cannot resume', () => {
+    expect(transition(FIXTURES.verified!, EVENTS.resume!)).toMatchObject({
+      state: 'failed',
+      reason: 'protocol',
+    });
+  });
+
+  it('a lost connection before the transfer started fails it', () => {
+    expect(transition(FIXTURES.offered!, EVENTS.lost!)).toMatchObject({
+      state: 'failed',
+      reason: 'closed',
+    });
+  });
+
+  it('a failure while transferring after a resume is final', () => {
+    const g = transition(FIXTURES['verified+resume']!, EVENTS.resume!);
+    expect(transition(g, { type: 'fail', reason: 'integrity' }).state).toBe('failed');
+  });
+
+  it('a paused transfer that fails (for example, it expired) is final', () => {
+    expect(transition(FIXTURES.paused!, { type: 'fail', reason: 'expired' }).state).toBe('failed');
+  });
+});
+
 describe('gate queries', () => {
   it('only allows payload while transferring', () => {
     for (const [name, gate] of Object.entries(FIXTURES)) {
@@ -157,16 +229,29 @@ describe('no skip path (property, P5-03)', () => {
     fc.constant({ type: 'reject' } as const),
     fc.constant({ type: 'complete' } as const),
     fc.constant({ type: 'cancel' } as const),
+    fc.constant({ type: 'lost' } as const),
+    fc.constant({ type: 'reattach' } as const),
+    fc.record({ type: fc.constant('resume' as const), fp: value }),
   );
 
-  it('manifest and payload states need both confirmations of the same digest', () => {
+  // A random-length prefix of the honest path, then random events, so deep states (transferring,
+  // paused, a new connection) are reached often; a prefix of 0 is a fully random sequence.
+  const sequence = fc
+    .tuple(fc.integer({ min: 0, max: TRANSFER.length + 1 }), fc.array(event, { maxLength: 12 }))
+    .map(([k, tail]) => [...[...TRANSFER, 'lost'].slice(0, k).map((n) => EVENTS[n]!), ...tail]);
+
+  it('manifest and payload states need both confirmations of the same digest on this connection', () => {
     fc.assert(
-      fc.property(fc.array(event, { maxLength: 12 }), (events) => {
+      fc.property(sequence, (events) => {
         let g = INITIAL_GATE;
-        const seen: GateEvent[] = [];
+        const all: GateEvent[] = [];
+        let seen: GateEvent[] = []; // events on the current connection
         for (const e of events) {
+          const before = g.state;
           g = transition(g, e);
-          seen.push(e);
+          all.push(e);
+          // A lost connection ends it: what was confirmed there no longer counts.
+          seen = g.state === 'paused' && before !== 'paused' ? [] : [...seen, e];
           if (['verified', 'offered', 'transferring', 'completed', 'rejected'].includes(g.state)) {
             const ready = seen.find((x) => x.type === 'sas-ready');
             expect(ready).toBeDefined();
@@ -176,8 +261,10 @@ describe('no skip path (property, P5-03)', () => {
             ).toBe(true);
           }
           if (canSendPayload(g)) {
-            const m = seen.find((x) => x.type === 'manifest') as { digest: string };
-            expect(seen.some((x) => x.type === 'accept' && x.digest === m.digest)).toBe(true);
+            const m = all.find((x) => x.type === 'manifest') as { digest: string };
+            expect(all.some((x) => x.type === 'accept' && x.digest === m.digest)).toBe(true);
+            if (all.length !== seen.length)
+              expect(seen.some((x) => x.type === 'resume')).toBe(true);
           }
         }
       }),

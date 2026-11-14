@@ -25,7 +25,10 @@ export type Control =
   | { v: 1; t: 'ack'; transferId: string; bytes: number }
   | { v: 1; t: 'file-end'; transferId: string; fileIdx: number; root: string }
   | { v: 1; t: 'complete'; transferId: string }
-  | { v: 1; t: 'cancel' };
+  | { v: 1; t: 'cancel' }
+  // P6-05: on a new, verified connection for a paused transfer (SD-07).
+  | { v: 1; t: 'resume'; transferId: string; proof: string }
+  | { v: 1; t: 'resume-from'; transferId: string; fileIdx: number; offset: number; proof: string };
 
 const VERSION = 1;
 const FINAL = 0b1;
@@ -126,6 +129,8 @@ const SCHEMAS: Record<Control['t'], Record<string, Check>> = {
   'file-end': { transferId: b64(16), fileIdx: uint, root: b64(32) },
   complete: { transferId: b64(16) },
   cancel: {},
+  resume: { transferId: b64(16), proof: b64(32) },
+  'resume-from': { transferId: b64(16), fileIdx: uint, offset: uint, proof: b64(32) },
 };
 
 /** Strictly parses one DataChannel control message; null for anything malformed or unknown. */
