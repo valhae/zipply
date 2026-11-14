@@ -399,6 +399,44 @@ describe('private rooms (P4-06)', () => {
     expect(await c.closed()).toBe(1008);
   });
 
+  it('remembers when the link expires (R18)', async () => {
+    const cap = await roomCapability(7);
+    await join('Alice', true, cap.path, cap.room);
+    const stub = env.ROOM.get(env.ROOM.idFromName(cap.name));
+    const expiries: (number | undefined)[] = [];
+    await editAttachments(stub, (att) => void expiries.push(att.expiresAt));
+    const minute = Math.floor(Date.now() / 60_000) + 7;
+    expect(expiries).toEqual([minute * 60_000]);
+  });
+
+  it('the sweep removes everyone once the link expired, without cancelling their connection (R18)', async () => {
+    const cap = await roomCapability();
+    const a = await join('Alice', true, cap.path, cap.room);
+    const b = await join('Bob', true, cap.path, cap.room);
+    await a.next('peer-joined');
+    const requestId = id();
+    a.send({ type: 'connection-request', payload: { requestId, targetPeerId: b.peerId } });
+    await b.next('connection-request');
+    b.send({ type: 'connection-response', payload: { requestId, accept: true } });
+    await a.next('connection-response');
+    const lobby = await join('Lobby', false);
+
+    const stub = env.ROOM.get(env.ROOM.idFromName(cap.name));
+    await editAttachments(stub, (att) => {
+      att.expiresAt = Date.now() - 1;
+    });
+    await runDurableObjectAlarm(stub);
+    for (const c of [a, b]) {
+      expect((await c.next('error')).payload.code).toBe('ROOM_INVALID');
+      expect(await c.closed()).toBe(1008);
+    }
+    // A direct connection the two already set up is theirs: no signaling cancel ends it.
+    expect([...a.inbox, ...b.inbox].some((m) => typeof m !== 'string' && m.type === 'cancel')).toBe(
+      false,
+    );
+    expect(lobby.closeCode()).toBeNull();
+  });
+
   it('rejects a capability sent to the public lobby', async () => {
     const { room } = await roomCapability();
     const c = await open('/ws');
