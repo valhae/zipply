@@ -29,6 +29,9 @@ The phase tables in `docs/IMPLEMENTATION_ROADMAP.md` are authoritative. Summary:
 - **P4:** message schemas, origin/path checks, presence/hibernation rebuild, routing authorization, limits, private-room capability, client presence state machine, two-page discovery via `wrangler dev`.
 - **P5:** the mandatory security suites in section 3. The signaling adversary is a Playwright `routeWebSocket` proxy on a page's signaling socket (`proxySignaling` in `e2e/webrtc.ts`): it records, drops, rewrites and injects frames between the real app and the real local Worker, and for the full MITM it drives a separate attacker page with its own `RTCPeerConnection`s. Axe in the WebRTC specs runs only after finite animations finish (`axe()` in `e2e/webrtc.ts`), because a dialog mid-fade has semi-transparent text that fails contrast. Audit tests that pass on existing code are backed by a mutation check (the control is broken on purpose, the test must fail, the change is reverted), recorded in PHASE_STATUS.
 - **P6:** sinks, integrity fault injection, checkpoints, resume at 1/50/99 %, cancel races, benchmarks, 1 GiB automated and 10 GiB manual.
+  - Unit: `sinks.test.ts` uses an in-memory File System Access fake whose writers, like Chromium's, commit only on `close()`; the session tests' fake DataChannel can lose every frame after a byte budget (a dead link) so a test pauses at an exact chunk.
+  - e2e (`e2e/resume.spec.ts`, `e2e/large.spec.ts`, Chromium; `<engine>-webrtc` projects): a connection is broken either by closing the app's DataChannel from the page at an exact checkpoint (`window.__dcs`), or by cutting `udpRelay()` in `e2e/webrtc.ts`, a UDP relay that carries the real data path. Playwright's offline emulation does not reach WebRTC (spike, 2026-11-14: a loopback DataChannel kept delivering for 40 s offline), so the relay is the network-loss tool: `proxySignaling` rewrites each page's host candidates to relay ports, and the relay forwards packets while `up` is true. It needs raw IP candidates, so `resume.spec.ts` launches Chromium with `--disable-features=WebRtcHideLocalIpsWithMdns`. Signaling loss uses `proxySignaling(...).drop()`. Large sinks use 260 MiB (just over the memory cap); the native folder picker is replaced by an OPFS folder because automation cannot drive it, and the OPFS path is forced by hiding `showDirectoryPicker`.
+  - Benchmarks (`npm run bench`, `playwright.bench.config.ts`, `e2e/*.bench.ts`, not part of `npm run e2e`): chunk size × watermarks on the real session code over a loopback DataChannel, and 1 GiB through the real app with JS heap and browser working-set sampling. Results go to `docs/benchmarks/` with their environment.
 - **P7:** offline reload, cache-content assertion (app shell only), offline manual pairing, QR on real devices.
 - **P8:** browser/device and network matrices, Lighthouse CI gate, PageSpeed reports, release checklist.
 
@@ -65,7 +68,7 @@ These are goals that are measured, never guaranteed. Website performance and tra
 - **Accessibility:** 0 serious/critical axe violations at all matrix viewports. Manual keyboard and screen-reader pass on the SAS, consent and cancel dialogs.
 - **Responsive:** no document-level horizontal overflow at the §40 viewport list. An orientation change preserves connection and transfer state.
 - **Transfer:**
-  - Byte-exact output on every fixture.
+  - Byte-exact output on every fixture, including after a resume and through every sink.
   - The sender's buffered amount never exceeds the high watermark.
   - Chromium heap growth during a 1 GiB transfer stays below a bound set from the P6-07 baseline.
   - Resume at 1/50/99 % succeeds byte-exact in 20 of 20 local runs.

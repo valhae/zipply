@@ -84,6 +84,8 @@ describe('parseControl', () => {
     { v: 1, t: 'file-end', transferId: ID, fileIdx: 0, root: D32 },
     { v: 1, t: 'complete', transferId: ID },
     { v: 1, t: 'cancel' },
+    { v: 1, t: 'resume', transferId: ID, proof: D32 },
+    { v: 1, t: 'resume-from', transferId: ID, fileIdx: 1, offset: 65_536, proof: D32 },
   ];
 
   it.each(ok)('accepts $t', (msg) => {
@@ -108,6 +110,19 @@ describe('parseControl', () => {
     ],
     ['negative ack', JSON.stringify({ v: 1, t: 'ack', transferId: ID, bytes: -1 })],
     ['fractional ack', JSON.stringify({ v: 1, t: 'ack', transferId: ID, bytes: 1.5 })],
+    ['resume without proof', JSON.stringify({ v: 1, t: 'resume', transferId: ID })],
+    ['short resume proof', JSON.stringify({ v: 1, t: 'resume', transferId: ID, proof: ID })],
+    [
+      'negative resume offset',
+      JSON.stringify({
+        v: 1,
+        t: 'resume-from',
+        transferId: ID,
+        fileIdx: 0,
+        offset: -1,
+        proof: D32,
+      }),
+    ],
     ['oversize text', JSON.stringify({ v: 1, t: 'cancel', pad: 'x'.repeat(MAX_CONTROL_BYTES) })],
     ['empty file list', manifest({})],
     ['tiny chunk size', manifest({ files: [file], chunkSize: 512 })],

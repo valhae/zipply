@@ -22,6 +22,7 @@ import { readDemo } from './features/radar/fixtures';
 import { discoveryStatus, type Connection } from './features/radar/status';
 import type { PeerState, RadarPeer } from './features/radar/types';
 import { ThemeControl } from './features/settings/ThemeControl';
+import { LeftoverNotice } from './features/transfer/LeftoverNotice';
 import { useTheme } from './features/settings/theme';
 import { Button } from './ui/Button';
 import { LiveRegion } from './ui/LiveRegion';
@@ -45,6 +46,7 @@ export default function App() {
   const [announcement, setAnnouncement] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [badRoomLink, setBadRoomLink] = useState(false);
+  const [notVisible, setNotVisible] = useState(false);
   const [discovery] = useState(() =>
     createDiscovery({
       url: import.meta.env.VITE_SIGNALING_URL as string | undefined,
@@ -224,13 +226,21 @@ export default function App() {
         {link.phase !== 'idle' && link.phase !== 'incoming' && (
           <section aria-labelledby="connection-heading" className="mt-14">
             <SectionHeader id="connection-heading" index="02" title="connection" />
+            {notVisible && link.phase === 'session' && (
+              <p role="alert" className="mb-4 text-[13px] text-gray-600">
+                {link.peerName} is not visible right now. Ask them to keep Zipply open with
+                Discoverable on, then press Reconnect again.
+              </p>
+            )}
             <ConnectionPanel
               link={link}
               onCancel={discovery.cancel}
               onDismiss={discovery.dismiss}
+              onReconnect={() => setNotVisible(!discovery.reconnect())}
             />
           </section>
         )}
+        {!demo && <LeftoverNotice />}
       </main>
 
       <footer className={`${WIDTH} flex h-16 items-center border-t border-gray-200`}>

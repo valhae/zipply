@@ -1,0 +1,138 @@
+{
+  "task": "P6-07",
+  "environment": {
+    "date": "2026-11-14T07:35:33.709Z",
+    "os": "Windows_NT 10.0.26300 (x64)",
+    "cpu": "AMD Ryzen 5 7520U with Radeon Graphics         ",
+    "cores": 8,
+    "memoryGiB": 15,
+    "node": "v24.22.0",
+    "browser": "chromium 156.0.8078.4",
+    "route": "loopback on one machine (no network)"
+  },
+  "sizeBytes": 67108864,
+  "sink": "memory",
+  "runsPerSetting": 3,
+  "results": [
+    {
+      "chunkSize": 16384,
+      "chunkPayload": 16384,
+      "high": 1048576,
+      "low": 262144,
+      "mibPerSecond": [6.2, 9.3, 9.6],
+      "median": 9.3
+    },
+    {
+      "chunkSize": 16384,
+      "chunkPayload": 16384,
+      "high": 4194304,
+      "low": 1048576,
+      "mibPerSecond": [8.5, 6.5, 10],
+      "median": 8.5
+    },
+    {
+      "chunkSize": 16384,
+      "chunkPayload": 16384,
+      "high": 16777216,
+      "low": 4194304,
+      "mibPerSecond": [9.5, 9.3, 9.7],
+      "median": 9.5
+    },
+    {
+      "chunkSize": 32768,
+      "chunkPayload": 32768,
+      "high": 1048576,
+      "low": 262144,
+      "mibPerSecond": [9.8, 11.4, 10.2],
+      "median": 10.2
+    },
+    {
+      "chunkSize": 32768,
+      "chunkPayload": 32768,
+      "high": 4194304,
+      "low": 1048576,
+      "mibPerSecond": [9.2, 10.4, 10.5],
+      "median": 10.4
+    },
+    {
+      "chunkSize": 32768,
+      "chunkPayload": 32768,
+      "high": 16777216,
+      "low": 4194304,
+      "mibPerSecond": [10.6, 10.9, 10.4],
+      "median": 10.6
+    },
+    {
+      "chunkSize": 65536,
+      "chunkPayload": 65536,
+      "high": 1048576,
+      "low": 262144,
+      "mibPerSecond": [11.4, 10.1, 11.1],
+      "median": 11.1
+    },
+    {
+      "chunkSize": 65536,
+      "chunkPayload": 65536,
+      "high": 4194304,
+      "low": 1048576,
+      "mibPerSecond": [11.8, 12.7, 9.1],
+      "median": 11.8
+    },
+    {
+      "chunkSize": 65536,
+      "chunkPayload": 65536,
+      "high": 16777216,
+      "low": 4194304,
+      "mibPerSecond": [11.8, 11.7, 11.3],
+      "median": 11.7
+    },
+    {
+      "chunkSize": 131072,
+      "chunkPayload": 131072,
+      "high": 1048576,
+      "low": 262144,
+      "mibPerSecond": [12.5, 12.6, 11.2],
+      "median": 12.5
+    },
+    {
+      "chunkSize": 131072,
+      "chunkPayload": 131072,
+      "high": 4194304,
+      "low": 1048576,
+      "mibPerSecond": [10.1, 12.4, 12.4],
+      "median": 12.4
+    },
+    {
+      "chunkSize": 131072,
+      "chunkPayload": 131072,
+      "high": 16777216,
+      "low": 4194304,
+      "mibPerSecond": [12.1, 11.9, 12.4],
+      "median": 12.1
+    },
+    {
+      "chunkSize": 262144,
+      "chunkPayload": 262074,
+      "high": 1048576,
+      "low": 262144,
+      "mibPerSecond": [13, 13.1, 11.3],
+      "median": 13
+    },
+    {
+      "chunkSize": 262144,
+      "chunkPayload": 262074,
+      "high": 4194304,
+      "low": 1048576,
+      "mibPerSecond": [12.3, 11.8, 10.6],
+      "median": 11.8
+    },
+    {
+      "chunkSize": 262144,
+      "chunkPayload": 262074,
+      "high": 16777216,
+      "low": 4194304,
+      "mibPerSecond": [11.9, 11.5, 11.8],
+      "median": 11.8
+    }
+  ]
+}

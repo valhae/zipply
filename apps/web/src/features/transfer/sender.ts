@@ -17,6 +17,10 @@ export interface SendOptions {
   high: number;
   low: number;
   signal: AbortSignal;
+  /** Resume (P6-05): start here, a chunk boundary confirmed by the receiver. */
+  offset?: number;
+  /** Digests of the chunks before `offset`; the new ones are appended (kept for a later resume). */
+  digests?: Uint8Array[];
 }
 
 /** Resolves once `bytes` more fit under the high watermark; rejects on abort. */
@@ -47,8 +51,14 @@ export async function sendFile(file: Blob, o: SendOptions): Promise<string> {
   if (o.low + frameMax > o.high) throw new Error('High watermark must exceed low + one frame');
   o.channel.bufferedAmountLowThreshold = o.low;
 
-  const digests: Uint8Array[] = [];
-  for (let offset = 0, chunkIdx = 0; offset < file.size; chunkIdx++) {
+  const digests = o.digests ?? [];
+  const start = o.offset ?? 0;
+  const chunks = Math.ceil(start / o.chunkSize);
+  if (start > file.size || (start % o.chunkSize !== 0 && start !== file.size)) {
+    throw new Error('Resume offset is not a chunk boundary');
+  }
+  if (digests.length !== chunks) throw new Error('Digests do not match the resume offset');
+  for (let offset = start, chunkIdx = chunks; offset < file.size; chunkIdx++) {
     o.signal.throwIfAborted();
     const end = Math.min(offset + o.chunkSize, file.size);
     const payload = new Uint8Array(await file.slice(offset, end).arrayBuffer());

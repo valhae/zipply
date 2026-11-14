@@ -29,9 +29,12 @@ interface Pending {
   id: string;
   peer: string;
   role: 'requester' | 'target';
+  /** Accepted pairs stay until cancel or disconnect, so an ICE restart can be relayed (D20). */
   accepted: boolean;
   expiresAt: number;
 }
+
+const current = (p: Pending, now: number) => p.accepted || p.expiresAt > now;
 
 /** Everything a socket needs survives hibernation here (≤ 16 KiB); nothing goes to storage. */
 export interface Attachment {
@@ -172,7 +175,7 @@ export class Room extends DurableObject {
         this.leave(ws, CLOSE_EXPIRED);
         continue;
       }
-      const kept = att.pending.filter((p) => p.expiresAt > now);
+      const kept = att.pending.filter((p) => current(p, now));
       if (kept.length !== att.pending.length) write(ws, { ...att, pending: kept });
     }
     if (this.live().length > 0) await this.ctx.storage.setAlarm(now + SWEEP_MS);
@@ -233,8 +236,8 @@ export class Room extends DurableObject {
     if (!target || target.ws === ws || !target.att.discoverable)
       return this.error(ws, 'PEER_NOT_FOUND');
     const now = Date.now();
-    const mine = att.pending.filter((p) => p.expiresAt > now);
-    const theirs = target.att.pending.filter((p) => p.expiresAt > now);
+    const mine = att.pending.filter((p) => current(p, now));
+    const theirs = target.att.pending.filter((p) => current(p, now));
     if (mine.length >= MAX_PENDING || theirs.length >= MAX_PENDING)
       return this.error(ws, 'RATE_LIMITED');
     if (this.live().some((s) => s.att.pending.some((p) => p.id === requestId))) {
@@ -257,9 +260,8 @@ export class Room extends DurableObject {
       return this.error(ws, 'REQUEST_EXPIRED');
     }
     if (accept) {
-      const expiresAt = Date.now() + REQUEST_TTL_SECONDS * 1000;
-      this.update(ws, requestId, (p) => ({ ...p, accepted: true, expiresAt }));
-      this.update(pair.other.ws, requestId, (p) => ({ ...p, accepted: true, expiresAt }));
+      this.update(ws, requestId, (p) => ({ ...p, accepted: true }));
+      this.update(pair.other.ws, requestId, (p) => ({ ...p, accepted: true }));
     } else {
       this.update(ws, requestId, () => null);
       this.update(pair.other.ws, requestId, () => null);
@@ -267,7 +269,10 @@ export class Room extends DurableObject {
     this.send(pair.other.ws, { type: 'connection-response', payload: { requestId, accept } });
   }
 
-  /** Offer/answer/ICE only between the two parties of an accepted request; cancel at any time. */
+  /**
+   * Offer/answer/ICE only between the two parties of an accepted request, in the right direction,
+   * for as long as both sockets live (a second offer is an ICE restart, P6-04); cancel at any time.
+   */
   private relay(ws: WebSocket, att: Attachment, m: Relayed) {
     const { requestId } = m.payload;
     const pair = this.pair(att, requestId);
@@ -337,7 +342,7 @@ export class Room extends DurableObject {
   }
 
   private pair(att: Attachment, requestId: string) {
-    const mine = att.pending.find((p) => p.id === requestId && p.expiresAt > Date.now());
+    const mine = att.pending.find((p) => p.id === requestId && current(p, Date.now()));
     const other = mine && this.find(mine.peer);
     return other?.att.pending.some((p) => p.id === requestId) ? { mine: mine!, other } : undefined;
   }

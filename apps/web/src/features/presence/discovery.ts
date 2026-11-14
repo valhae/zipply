@@ -1,4 +1,4 @@
-import { isValidDisplayName } from '@zipply/protocol';
+import { isValidDisplayName, type Peer } from '@zipply/protocol';
 import { IDLE_LINK, createLink, type Link, type LinkSnapshot } from '../connection/link';
 import { OFFLINE, createPresence, type Presence, type PresenceSnapshot } from './presence';
 import type { Room } from './room';
@@ -101,6 +101,16 @@ export function randomPixelName(): string {
 }
 
 const MAX_AUTO_RETRIES = 5;
+
+/**
+ * The peer to reconnect a paused transfer to: the same id, else the same name (the other side's id
+ * changes when its signaling reconnects). Only a locator: the new word check proves who it is (D4).
+ */
+export const findPeer = (peers: Peer[], peerId: string, name: string) =>
+  peers.find((p) => p.peerId === peerId) ??
+  peers.find(
+    (p) => p.displayName.normalize('NFKC').toLowerCase() === name.normalize('NFKC').toLowerCase(),
+  );
 
 /**
  * Owns the presence connection and the connection-request flow for the current scope (lobby or a
@@ -206,6 +216,13 @@ export function createDiscovery(o: Options) {
     request: (peerId: string, name: string, files: File[]) => link?.request(peerId, name, files),
     accept: () => link?.accept(),
     decline: () => link?.decline(),
+    /** Local action for a paused sending transfer; false if the receiver is not visible now. */
+    reconnect() {
+      const l = link?.getSnapshot();
+      const p =
+        l && presence && findPeer(presence.getSnapshot().peers, l.peerId ?? '', l.peerName ?? '');
+      return !!p && !!link?.reconnect(p.peerId, p.displayName);
+    },
     cancel: () => link?.cancel(),
     dismiss: () => link?.dismiss(),
   };

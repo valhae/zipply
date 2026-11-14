@@ -16,17 +16,29 @@ const TERMINAL = ['completed', 'rejected', 'canceled', 'failed'];
 
 function SessionPanel({
   session,
-  role,
+  link,
   onDismiss,
+  onReconnect,
 }: {
   session: Session;
-  role: LinkSnapshot['role'];
+  link: LinkSnapshot;
   onDismiss: () => void;
+  onReconnect?: () => void;
 }) {
   const { state } = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const name = link.peerName ?? 'The other device';
   return (
     <>
-      <TransferView session={session} direction={role === 'offerer' ? 'send' : 'receive'} />
+      {/* A reconnect attempt for a paused transfer that did not get through. */}
+      {link.notice && state === 'paused' && (
+        <p className="text-[13px] text-gray-600">{ENDED[link.notice](name)}</p>
+      )}
+      <TransferView
+        session={session}
+        direction={link.role === 'offerer' ? 'send' : 'receive'}
+        peerName={name}
+        onReconnect={onReconnect}
+      />
       {TERMINAL.includes(state) && (
         <Button className="mt-6" onClick={onDismiss}>
           Close
@@ -41,13 +53,22 @@ export function ConnectionPanel({
   link,
   onCancel,
   onDismiss,
+  onReconnect,
 }: {
   link: LinkSnapshot;
   onCancel: () => void;
   onDismiss: () => void;
+  onReconnect?: () => void;
 }) {
   if (link.phase === 'session' && link.session) {
-    return <SessionPanel session={link.session} role={link.role} onDismiss={onDismiss} />;
+    return (
+      <SessionPanel
+        session={link.session}
+        link={link}
+        onDismiss={onDismiss}
+        onReconnect={onReconnect}
+      />
+    );
   }
   const name = link.peerName ?? 'The other device';
   const view =

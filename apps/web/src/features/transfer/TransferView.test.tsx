@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Snapshot } from '../connection/session';
+import type { Session, Snapshot } from '../connection/session';
 import { TransferView } from './TransferView';
 
 beforeAll(() => {
@@ -22,13 +22,23 @@ const base: Snapshot = {
   say: SAY,
   attemptsLeft: 3,
   localConfirmed: false,
+  resuming: false,
   manifest: null,
-  tooLarge: false,
+  plan: null,
   progress: null,
+  expiresAt: null,
   downloads: [],
 };
+const progress = (confirmed: number, total: number, over = {}) => ({
+  confirmed,
+  total,
+  speed: null,
+  average: null,
+  eta: null,
+  ...over,
+});
 
-function fakeSession(patch: Partial<Snapshot>) {
+function fakeSession(patch: Partial<Snapshot>, role: 'offerer' | 'answerer' = 'answerer') {
   let snap = { ...base, ...patch };
   const listeners = new Set<() => void>();
   return {
@@ -48,7 +58,23 @@ function fakeSession(patch: Partial<Snapshot>) {
     cancel: vi.fn(),
     lost: vi.fn(),
     dispose: vi.fn(),
-  };
+    role,
+    attach: vi.fn(() => true),
+    debug: vi.fn(() => ({
+      role,
+      state: snap.state,
+      chunkSize: 65_536,
+      maxMessageSize: 262_144,
+      high: 1_048_576,
+      low: 262_144,
+      ackEvery: 1_048_576,
+      bufferedAmount: 4096,
+      queued: 10_000,
+      confirmed: 8192,
+      total: 20_000,
+      stats: async () => ({ ice: 'connected', route: 'host → host (udp)' }),
+    })),
+  } satisfies Session & { set: (next: Partial<Snapshot>) => void };
 }
 
 describe('TransferView: verification', () => {
@@ -146,7 +172,7 @@ describe('TransferView: consent', () => {
   it('closing the file dialog after acceptance does not reject', () => {
     const s = fakeSession({ state: 'offered', manifest });
     render(<TransferView session={s} direction="receive" />);
-    act(() => s.set({ state: 'transferring', progress: { confirmed: 0, total: 1536 } }));
+    act(() => s.set({ state: 'transferring', progress: progress(0, 1536) }));
     expect(s.reject).not.toHaveBeenCalled();
   });
 
@@ -156,20 +182,39 @@ describe('TransferView: consent', () => {
     expect(screen.getByText(/Waiting for the other person to accept/)).toBeTruthy();
   });
 
-  it('explains an automatic over-limit rejection', () => {
+  it.each([
+    [{ kind: null, reason: 'no-sink' }, /no way to save files this large/],
+    [{ kind: null, reason: 'no-space', free: 1024 }, /not enough free storage.*1\.0 KiB/],
+  ] as const)('explains an automatic rejection: %j', (plan, text) => {
     render(
       <TransferView
-        session={fakeSession({ state: 'rejected', tooLarge: true, manifest })}
+        session={fakeSession({ state: 'rejected', plan, manifest })}
         direction="receive"
       />,
     );
-    expect(screen.getByText(/larger than this browser can receive/)).toBeTruthy();
+    expect(screen.getByText(text)).toBeTruthy();
+  });
+
+  // P6-01: suitability is shown before Accept.
+  it.each([
+    [{ kind: 'memory' }, /saved to your downloads/i],
+    [{ kind: 'folder' }, /choose a folder/i],
+    [{ kind: 'browser', free: 5 * 1024 ** 3 }, /browser's storage.*5\.0 GiB free/],
+  ] as const)('says where the files will go before Accept: %j', (plan, text) => {
+    render(
+      <TransferView
+        session={fakeSession({ state: 'offered', manifest, plan })}
+        direction="receive"
+      />,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Incoming files' });
+    expect(within(dialog).getByText(text)).toBeTruthy();
   });
 });
 
 describe('TransferView: transfer and result', () => {
   it('shows confirmed progress and a cancel control', () => {
-    const s = fakeSession({ state: 'transferring', progress: { confirmed: 512, total: 2048 } });
+    const s = fakeSession({ state: 'transferring', progress: progress(512, 2048) });
     render(<TransferView session={s} direction="send" />);
     const bar = screen.getByRole('progressbar', { name: 'Transfer progress' });
     expect(bar.getAttribute('value')).toBe('512');
@@ -201,6 +246,81 @@ describe('TransferView: transfer and result', () => {
   });
 });
 
+describe('TransferView: queue states (P6-09)', () => {
+  it('shows speed, the rolling average and an ETA only when one is given', () => {
+    const s = fakeSession({ state: 'transferring', progress: progress(512, 2048) });
+    render(<TransferView session={s} direction="receive" />);
+    expect(screen.queryByText(/left/)).toBeNull();
+    act(() => s.set({ progress: progress(1024, 2048, { speed: 2048, average: 1024, eta: 90 }) }));
+    expect(
+      screen.getByText(/2\.0 KiB\/s now · 1\.0 KiB\/s average · about 2 min left/),
+    ).toBeTruthy();
+  });
+
+  it('progress updates never change the announced status line', () => {
+    const s = fakeSession({ state: 'transferring', progress: progress(0, 2048) });
+    render(<TransferView session={s} direction="receive" />);
+    const status = screen.getByRole('status');
+    const before = status.textContent;
+    act(() => s.set({ progress: progress(1500, 2048, { speed: 10, average: 10, eta: 50 }) }));
+    expect(status.textContent).toBe(before);
+    expect(within(status).queryByText(/KiB/)).toBeNull();
+  });
+
+  it('a paused sender can reconnect or cancel; the confirmed checkpoint is shown', () => {
+    const onReconnect = vi.fn();
+    const s = fakeSession(
+      { state: 'paused', progress: progress(1024, 4096), expiresAt: Date.now() + 600_000 },
+      'offerer',
+    );
+    render(<TransferView session={s} direction="send" peerName="Alex" onReconnect={onReconnect} />);
+    expect(screen.getByRole('status').textContent).toMatch(/Paused/);
+    expect(screen.getByText(/1\.0 KiB of 4\.0 KiB confirmed/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
+    expect(onReconnect).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel transfer' }));
+    expect(s.cancel).toHaveBeenCalledOnce();
+  });
+
+  it('a paused receiver waits for the sender and has no Reconnect button', () => {
+    const s = fakeSession({ state: 'paused', progress: progress(1, 4) });
+    render(<TransferView session={s} direction="receive" peerName="Alex" />);
+    expect(screen.getByRole('status').textContent).toMatch(/Waiting for Alex to reconnect/);
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+  });
+
+  it('a new connection for a paused transfer asks for the words again and says why', () => {
+    render(<TransferView session={fakeSession({ resuming: true })} direction="receive" />);
+    const dialog = screen.getByRole('dialog', { name: 'Verification required' });
+    expect(within(dialog).getByText(/new connection.*paused transfer/i)).toBeTruthy();
+  });
+
+  it.each([
+    ['storage', /could not be saved/],
+    ['expired', /could not be resumed/],
+  ] as const)('explains a %s failure', (reason, text) => {
+    render(<TransferView session={fakeSession({ state: 'failed', reason })} direction="receive" />);
+    expect(screen.getByText(text)).toBeTruthy();
+  });
+});
+
+describe('TransferView: debug panel (P6-07)', () => {
+  it('is closed until opened and shows only sizes, counters and the route type', async () => {
+    const manifest = { files: [{ name: 'a.txt', size: 1 }], total: 1 };
+    const s = fakeSession({ state: 'transferring', progress: progress(1, 2), manifest });
+    render(<TransferView session={s} direction="receive" />);
+    const panel = screen.getByText('Connection details').closest('details')!;
+    expect(panel.open).toBe(false);
+    await act(async () => {
+      panel.open = true;
+      panel.dispatchEvent(new Event('toggle'));
+    });
+    expect(panel.textContent).toMatch(/64\.0 KiB/);
+    expect(panel.textContent).toMatch(/host → host \(udp\)/);
+    expect(panel.textContent).not.toMatch(/a\.txt|b\.bin/);
+  });
+});
+
 describe('TransferView: automatic save', () => {
   const blob = new Blob(['x']);
   const downloads = [
@@ -220,7 +340,7 @@ describe('TransferView: automatic save', () => {
 
   it('saves every verified file once the transfer completes (receiver only)', () => {
     const seen = clicks();
-    const s = fakeSession({ state: 'transferring', progress: { confirmed: 1, total: 2 } });
+    const s = fakeSession({ state: 'transferring', progress: progress(1, 2) });
     const { rerender } = render(<TransferView session={s} direction="receive" />);
     expect(seen).toEqual([]);
     act(() => s.set({ state: 'completed', downloads }));
@@ -231,6 +351,18 @@ describe('TransferView: automatic save', () => {
     rerender(<TransferView session={s} direction="receive" />);
     expect(seen).toHaveLength(2);
     expect(screen.getByRole('link', { name: /Save a\.pdf/ })).toBeTruthy(); // fallback stays
+  });
+
+  it('files written into a chosen folder are listed, not downloaded again', () => {
+    const seen = clicks();
+    const s = fakeSession({
+      state: 'completed',
+      downloads: [{ name: 'big.iso', size: 1, url: null, blob }],
+    });
+    render(<TransferView session={s} direction="receive" />);
+    expect(seen).toEqual([]);
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.getByText(/Saved big\.iso/)).toBeTruthy();
   });
 
   it('never saves on the sending side', () => {

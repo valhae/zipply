@@ -123,4 +123,35 @@ describe('sendFile', () => {
       sendFile(new Blob([random(10)]), opts(fakeChannel(), { high: 1500 })),
     ).rejects.toThrow();
   });
+
+  it('resumes from a confirmed offset with the earlier digests and the same root (P6-05)', async () => {
+    const data = random(7 * CHUNK + 5);
+    const full = fakeChannel();
+    const root = await sendFile(new Blob([data]), opts(full));
+    const frames = full.sent.map((f) => decodeChunk(f, CHUNK)!);
+
+    const resumed = fakeChannel();
+    const digests = frames.slice(0, 4).map((f) => f.header.digest);
+    const again = await sendFile(new Blob([data]), opts(resumed, { offset: 4 * CHUNK, digests }));
+    expect(again).toBe(root);
+    expect(digests).toHaveLength(frames.length);
+    const tail = resumed.sent.map((f) => decodeChunk(f, CHUNK)!);
+    expect(tail.map((f) => [f.header.chunkIdx, f.header.offset])).toEqual(
+      frames.slice(4).map((f) => [f.header.chunkIdx, f.header.offset]),
+    );
+  });
+
+  it('refuses a resume offset off a chunk boundary or without matching digests', async () => {
+    const blob = new Blob([random(5 * CHUNK)]);
+    const d = [new Uint8Array(32), new Uint8Array(32)];
+    await expect(
+      sendFile(blob, opts(fakeChannel(), { offset: 2 * CHUNK + 1, digests: d })),
+    ).rejects.toThrow();
+    await expect(
+      sendFile(blob, opts(fakeChannel(), { offset: 3 * CHUNK, digests: d })),
+    ).rejects.toThrow();
+    await expect(
+      sendFile(blob, opts(fakeChannel(), { offset: 6 * CHUNK, digests: d })),
+    ).rejects.toThrow();
+  });
 });
