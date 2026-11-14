@@ -6,12 +6,14 @@ import type { RadarPeer } from './types';
 
 interface Props {
   peer: RadarPeer | null;
+  /** STUN hostnames that will also see this device's network address. */
+  stun?: string[];
   canRequest: boolean;
   onRequest: (files: File[]) => void;
   onClose: () => void;
 }
 
-export function PeerDetails({ peer, canRequest, onRequest, onClose }: Props) {
+export function PeerDetails({ peer, stun = [], canRequest, onRequest, onClose }: Props) {
   const [files, setFiles] = useState<File[]>([]);
   const close = () => {
     setFiles([]);
@@ -21,9 +23,12 @@ export function PeerDetails({ peer, canRequest, onRequest, onClose }: Props) {
     <Dialog open={peer !== null} onClose={close} title={peer?.name ?? ''}>
       <p className="micro text-gray-600">{peer && STATE_LABELS[peer.state]}</p>
       <p className="mt-4 text-[13px] text-gray-600">
-        A display name is only a label, not a verified identity. Before any file is shared you will
-        both compare a short verification phrase. A direct connection shares your network address
-        (IP) with the other device.
+        A display name is only a label, not a verified identity. Before any file is shared you each
+        read three words aloud and type the three you hear.
+      </p>
+      <p className="mt-3 text-[13px] text-gray-600">
+        A direct connection shares your network address (IP) with the other device
+        {stun.length > 0 && ` and with the STUN server ${stun.join(', ')}, which helps set it up`}.
       </p>
       <div className="mt-6 grid gap-3">
         <label className="grid gap-2 text-[13px]">
@@ -36,6 +41,10 @@ export function PeerDetails({ peer, canRequest, onRequest, onClose }: Props) {
             className="text-[13px]"
           />
         </label>
+        <p className="text-[13px] text-gray-600">
+          Original file metadata is preserved. Check for location or personal details before
+          sharing.
+        </p>
         <Button
           variant="primary"
           disabled={!canRequest || files.length === 0}

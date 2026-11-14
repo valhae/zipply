@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 const CI = !!process.env.CI;
 const SIGNALING = 'ws://localhost:8787/ws';
 const TEST_ORIGINS = 'http://localhost:5173,http://localhost:4173';
-const WEBRTC = /(transfer|webrtc-spike)\.spec\.ts$/;
+const WEBRTC = /(transfer|webrtc-spike|mitm|consent)\.spec\.ts$/;
 const ENGINES = [
   ['chromium', 'Desktop Chrome'],
   ['firefox', 'Desktop Firefox'],

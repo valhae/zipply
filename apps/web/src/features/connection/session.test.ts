@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from 'vitest';
-import { commit, randomBytes } from './sas';
+import { commit, randomBytes, toB64url } from './sas';
 import { createSession, type Session, type SessionOptions } from './session';
 
 type Listener = (e: { data?: unknown }) => void;
@@ -99,20 +99,31 @@ async function setup(
   return { offerer, answerer, oEnd, aEnd };
 }
 
-const verify = async (s: Awaited<ReturnType<typeof setup>>) => {
-  s.offerer.confirm();
-  s.answerer.confirm();
+type Pair = Awaited<ReturnType<typeof setup>>;
+/** What each user hears: the words the other device shows (D19). */
+const heard = (s: Pair) => ({
+  offerer: s.answerer.getSnapshot().say!.join(' '),
+  answerer: s.offerer.getSnapshot().say!.join(' '),
+});
+const verify = async (s: Pair) => {
+  const h = heard(s);
+  s.offerer.checkWords(h.offerer);
+  s.answerer.checkWords(h.answerer);
   await settle();
 };
 
 describe('session: happy path', () => {
-  it('shows the same phrase on both sides and nothing else before confirmation', async () => {
+  it('each side shows only the three words its user reads aloud', async () => {
     const s = await setup();
     const o = s.offerer.getSnapshot();
     const a = s.answerer.getSnapshot();
-    expect(o.phrase).toHaveLength(6);
-    expect(a.phrase).toEqual(o.phrase);
+    expect(o.say).toHaveLength(3);
+    expect(a.say).toHaveLength(3);
+    expect(a.say).not.toEqual(o.say);
+    // The half a user must type is never in the snapshot the UI renders.
+    expect(Object.keys(o)).not.toContain('phrase');
     expect([o.state, a.state]).toEqual(['verifying', 'verifying']);
+    expect([o.attemptsLeft, a.attemptsLeft]).toEqual([3, 3]);
     expect(a.manifest).toBeNull();
     expect(manifests(s.oEnd) + payloads(s.oEnd)).toBe(0);
   });
@@ -121,10 +132,11 @@ describe('session: happy path', () => {
     const data = [random(0), random(1), random(1024), random(1025), random(5000)];
     const names = ['empty', 'one', 'chunk', 'chunk+1', 'many'];
     const s = await setup({ files: data.map((d, i) => new File([d], names[i]!)) });
-    s.offerer.confirm();
+    const h = heard(s);
+    expect(s.offerer.checkWords(h.offerer)).toBe('ok');
     await settle();
     expect(manifests(s.oEnd)).toBe(0); // only one side confirmed
-    s.answerer.confirm();
+    expect(s.answerer.checkWords(h.answerer)).toBe('ok');
     await settle();
 
     const a = s.answerer.getSnapshot();
@@ -167,19 +179,49 @@ describe('session: consent and verification fail closed', () => {
     expect(manifests(s.oEnd) + payloads(s.oEnd)).toBe(0);
   });
 
-  it('a terminal state purges the phrase (SD-02 step 8)', async () => {
+  it('a terminal state purges the words (SD-02 step 8)', async () => {
     const s = await setup();
-    expect(s.answerer.getSnapshot().phrase).not.toBeNull();
+    const h = heard(s);
+    expect(s.answerer.getSnapshot().say).not.toBeNull();
     s.answerer.mismatch();
     await settle();
-    expect(s.answerer.getSnapshot().phrase).toBeNull();
-    expect(s.offerer.getSnapshot().phrase).toBeNull();
+    expect(s.answerer.getSnapshot().say).toBeNull();
+    expect(s.offerer.getSnapshot().say).toBeNull();
+    // The hidden half is gone too: the right words no longer verify anything.
+    expect(s.answerer.checkWords(h.answerer)).toBe('ignored');
   });
 
-  it('substituted fingerprints (MITM) → different phrases, and confirming anyway fails', async () => {
+  it('a wrong entry leaves two tries; the right words then verify', async () => {
+    const s = await setup();
+    const h = heard(s);
+    expect(s.answerer.checkWords('zoo zoo zoo')).toBe('wrong');
+    expect(s.answerer.getSnapshot()).toMatchObject({ state: 'verifying', attemptsLeft: 2 });
+    expect(s.answerer.checkWords(h.answerer)).toBe('ok');
+    expect(s.answerer.getSnapshot().localConfirmed).toBe(true);
+  });
+
+  it('three wrong entries fail closed as a mismatch and close the connection', async () => {
+    const s = await setup();
+    s.answerer.checkWords('zoo zoo zoo');
+    s.answerer.checkWords('zoo zoo zoo');
+    expect(s.answerer.checkWords('zoo zoo zoo')).toBe('failed');
+    await settle();
+    expect(s.answerer.getSnapshot()).toMatchObject({ state: 'failed', reason: 'mismatch' });
+    expect(s.offerer.getSnapshot().state).toBe('failed');
+    expect(s.oEnd.readyState).toBe('closed');
+    expect(manifests(s.oEnd) + payloads(s.oEnd)).toBe(0);
+  });
+
+  it('typing the words your own device shows does not verify', async () => {
+    const s = await setup();
+    const own = s.answerer.getSnapshot().say!.join(' ');
+    expect(s.answerer.checkWords(own)).toBe('wrong');
+    expect(s.answerer.getSnapshot().localConfirmed).toBe(false);
+  });
+
+  it('substituted fingerprints (MITM) → the words heard never match on either side', async () => {
     const s = await setup({ answerSdp: fp('CC') });
-    expect(s.answerer.getSnapshot().phrase).not.toEqual(s.offerer.getSnapshot().phrase);
-    await verify(s);
+    for (let i = 0; i < 3; i++) await verify(s);
     expect(s.offerer.getSnapshot()).toMatchObject({ state: 'failed', reason: 'mismatch' });
     expect(s.answerer.getSnapshot()).toMatchObject({ state: 'failed', reason: 'mismatch' });
     expect(manifests(s.oEnd) + payloads(s.oEnd)).toBe(0);
@@ -190,7 +232,7 @@ describe('session: consent and verification fail closed', () => {
     expect(s.answerer.getSnapshot()).toMatchObject({
       state: 'failed',
       reason: 'commitment',
-      phrase: null,
+      say: null,
     });
   });
 
@@ -252,5 +294,77 @@ describe('session: consent and verification fail closed', () => {
     await settle();
     expect(s.answerer.getSnapshot()).toMatchObject({ state: 'failed', reason: 'closed' });
     expect(payloads(s.oEnd)).toBe(0);
+  });
+});
+
+describe('session: replay (P5-04)', () => {
+  const control = (end: FakeEnd, msg: object) => end.send(JSON.stringify({ v: 1, ...msg }));
+
+  it('a confirmation carrying another digest (e.g. from an old connection) is a mismatch', async () => {
+    const s = await setup();
+    control(s.oEnd, { t: 'sas-confirm', d: toB64url(randomBytes(32)) });
+    await settle();
+    expect(s.answerer.getSnapshot()).toMatchObject({ state: 'failed', reason: 'mismatch' });
+    expect(manifests(s.oEnd) + payloads(s.oEnd)).toBe(0);
+  });
+
+  it('a replayed confirmation after verification fails closed', async () => {
+    const s = await setup();
+    await verify(s);
+    const confirm = s.oEnd.sent.find((m) => typeof m === 'string' && m.includes('sas-confirm'));
+    s.oEnd.send(confirm as string);
+    await settle();
+    expect(s.answerer.getSnapshot()).toMatchObject({ state: 'failed', reason: 'protocol' });
+    expect(payloads(s.oEnd)).toBe(0);
+  });
+
+  it('a second nonce reveal fails closed', async () => {
+    const s = await setup();
+    const reveal = s.oEnd.sent.find((m) => typeof m === 'string' && m.includes('sas-reveal'));
+    s.oEnd.send(reveal as string);
+    await settle();
+    expect(s.answerer.getSnapshot()).toMatchObject({ state: 'failed', reason: 'protocol' });
+  });
+});
+
+describe('session: consent races (P5-05)', () => {
+  it('the sender cancels while the receiver reviews the files; a late Accept sends nothing', async () => {
+    const s = await setup();
+    await verify(s);
+    expect(s.answerer.getSnapshot().state).toBe('offered');
+    s.offerer.cancel();
+    await settle();
+    s.answerer.accept();
+    await settle();
+    expect(s.answerer.getSnapshot().state).toBe('canceled');
+    expect(s.offerer.getSnapshot().state).toBe('canceled');
+    expect(payloads(s.oEnd)).toBe(0);
+    expect(s.aEnd.sent.some((m) => typeof m === 'string' && m.includes('files-accept'))).toBe(
+      false,
+    );
+  });
+
+  it('Accept and Cancel at the same moment: nobody completes and the sender stops', async () => {
+    const s = await setup({ files: [new File([random(200_000)], 'big')] });
+    await verify(s);
+    s.answerer.accept();
+    s.offerer.cancel();
+    await settle();
+    expect(s.offerer.getSnapshot().state).toBe('canceled');
+    expect(s.answerer.getSnapshot().state).not.toBe('completed');
+    expect(payloads(s.oEnd)).toBe(0);
+  });
+
+  it('a duplicate acceptance during the transfer fails it closed', async () => {
+    const s = await setup({ files: [new File([random(2_000_000)], 'big')] });
+    await verify(s);
+    s.answerer.accept();
+    const accept = s.aEnd.sent.find((m) => typeof m === 'string' && m.includes('files-accept'));
+    s.aEnd.send(accept as string);
+    await settle();
+    expect(s.offerer.getSnapshot()).toMatchObject({ state: 'failed', reason: 'protocol' });
+    const after = payloads(s.oEnd);
+    await settle();
+    expect(payloads(s.oEnd)).toBe(after);
   });
 });

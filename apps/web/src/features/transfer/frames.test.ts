@@ -147,7 +147,7 @@ describe('frame properties', () => {
       const payload = crypto.getRandomValues(new Uint8Array(r(2048)));
       expect(decodeChunk(encodeChunk(h, payload), 2048)).toEqual({ header: h, payload });
     }
-  });
+  }, 20_000); // ~4 s alone (deep equality on 500 payloads); the 5 s default flaked under load
 
   it('random corruption never throws: decode returns null or a well-formed frame (2,000 runs)', () => {
     const frame = new Uint8Array(encodeChunk(header(), new Uint8Array(100)));

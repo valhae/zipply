@@ -6,7 +6,9 @@ import {
   parseFingerprints,
   phrase,
   sasDigest,
+  splitPhrase,
   toB64url,
+  wordsMatch,
   type SasInputs,
 } from './sas';
 import { WORDLIST } from './wordlist';
@@ -157,6 +159,38 @@ describe('phrase', () => {
     d[8] = 0x3f; // bits 66..71
     d[31] = 0xff;
     expect(phrase(d)).toEqual(Array(6).fill('abandon'));
+  });
+});
+
+describe('spoken-and-typed check (D19)', () => {
+  const words = ['apple', 'banana', 'cherry', 'delta', 'echo', 'fox'];
+
+  it('the offerer reads words 1–3 and checks 4–6; the answerer the other way round', () => {
+    expect(splitPhrase(words, 'offerer')).toEqual({
+      say: ['apple', 'banana', 'cherry'],
+      hear: ['delta', 'echo', 'fox'],
+    });
+    expect(splitPhrase(words, 'answerer')).toEqual({
+      say: ['delta', 'echo', 'fox'],
+      hear: ['apple', 'banana', 'cherry'],
+    });
+  });
+
+  it('accepts the three words in order, ignoring case and spacing', () => {
+    const hear = ['delta', 'echo', 'fox'];
+    expect(wordsMatch('delta echo fox', hear)).toBe(true);
+    expect(wordsMatch('  Delta,  ECHO	fox. ', hear)).toBe(true);
+  });
+
+  it.each([
+    ['wrong order', 'echo delta fox'],
+    ['missing word', 'delta echo'],
+    ['extra word', 'delta echo fox apple'],
+    ['typo', 'delta echo fix'],
+    ['prefix only', 'delt echo fox'],
+    ['empty', ''],
+  ])('rejects %s', (_, typed) => {
+    expect(wordsMatch(typed, ['delta', 'echo', 'fox'])).toBe(false);
   });
 });
 
