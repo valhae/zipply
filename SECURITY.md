@@ -1,10 +1,10 @@
 # Security policy
 
-Zipply is a personal, pre-release project. It has **not** been independently audited, and no version is currently deployed or supported for real use.
+Zipply is a personal, pre-release project. It has **not** been independently audited. A staging copy exists for testing, but no version is supported for real use yet.
 
 ## Reporting a vulnerability
 
-Please report suspected vulnerabilities privately through GitHub's **"Report a vulnerability"** button (private security advisories) on this repository once it is published. Do not open a public issue for security problems.
+Please report suspected vulnerabilities privately through GitHub's **"Report a vulnerability"** button (private security advisories) on this repository. Do not open a public issue for security problems.
 
 Include what you found, how to reproduce it, and the impact you expect. Please use only test peers and synthetic files — never real personal data.
 
