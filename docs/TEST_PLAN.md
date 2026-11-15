@@ -38,6 +38,11 @@ The phase tables in `docs/IMPLEMENTATION_ROADMAP.md` are authoritative. Summary:
   - `e2e/pairing.spec.ts` (`<engine>-webrtc` projects): Playwright's offline emulation also stops **new** WebRTC connections (probe, 2026-11-15: the same flow connects online and never connects offline), which a LAN without internet does not. So the pages reload offline from the service worker, and the emulation is then lifted while `context.route('**/*')` aborts every HTTP request and `routeWebSocket` closes every WebSocket: no internet and no signaling, loopback still there. The QR test screenshots the rendered QR and decodes it with jsQR in a blank page. The camera test uses Chromium's `--use-fake-device-for-media-stream` and `--use-file-for-fake-video-capture` with a one-frame Y4M written by the test; Playwright's default headless shell has no camera capture (`NotSupportedError`), so this spec launches the full Chromium build (`channel: 'chromium'`, installed by `playwright install chromium`).
   - Manual (owner, `docs/OFFLINE-MODE.md`): QR scan round-trip on two real devices (P7-04) and the real-device LAN matrix (P7-06); phones need an HTTPS deployment.
 - **P8:** browser/device and network matrices, Lighthouse CI gate, PageSpeed reports, release checklist.
+  - Script tests (`node --test "scripts/**/*.test.mjs"`, part of `npm run test`): `scripts/performance/performance.test.mjs` covers the score floors (median of the runs, one low run only warns, runs with a Lighthouse runtime error are skipped, a missing form factor fails, floors from env with empty meaning the default) and the PageSpeed retry policy (429/5xx/network retried after 5, 10, 20 s, other 4xx fails at once, 4 attempts at most). Both were mutation-checked.
+  - Lighthouse CI (`.github/workflows/lighthouse-ci.yml`, every push and pull request): production build with local signaling, `budget.mjs` (initial JS ≤ 200 kB gzip, CSS ≤ 40 kB), then `lighthouse.mjs` (Lighthouse 13.6.0 through `npx`, 3 mobile + 3 desktop runs on Playwright's Chromium, a run with a runtime error retried up to 3 times) and `compare-scores.mjs` (median ≥ floors). Reports are a 14-day artifact.
+  - PageSpeed Insights (`.github/workflows/pagespeed.yml`): daily, manual and on a production `deployment_status`; 3 runs per strategy; same floors; 30-day artifact; skipped until `PAGESPEED_TARGET_URL` is set.
+  - Deployment check (`scripts/release/verify-deploy.mjs`, run by the owner after a deploy): deployed files equal a local build of the same commit, headers equal `vercel.json`, HTTP→HTTPS, TLS 1.3/1.2/no 1.1 on both hosts, signaling health, Origin allowlist and HTTPS-only upgrades. Writes `SHA256SUMS` (`docs/RELEASE.md`).
+  - Manual (owner): the real-device and network rows of `docs/COMPATIBILITY.md`.
 
 ## 3. Mandatory security suites (all release-blocking)
 
@@ -55,7 +60,7 @@ The phase tables in `docs/IMPLEMENTATION_ROADMAP.md` are authoritative. Summary:
   - manifest privacy → P5-07
   - ICE/logging privacy → P5-07
   - origin and transport → P4-02/P5-08
-  - malicious front-end limits → P8-06
+  - malicious front-end limits → P8-06 (documented in `docs/PRIVACY.md` and `docs/SELF-HOSTING.md`; release hashes and `verify-deploy.mjs` in `docs/RELEASE.md`)
   - active-file hazards → P5-08
   - privacy UI → P5-09
 - Spec §38.8 release-blocking rules → checked in P8-07.

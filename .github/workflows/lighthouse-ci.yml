@@ -1,0 +1,57 @@
+name: Lighthouse CI
+
+# P8-03/P8-05: deterministic performance gate on a local production preview (no deploy, no secrets).
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lighthouse-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lighthouse:
+    name: Bundle budget and Lighthouse floors
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_SIGNALING_URL: ws://localhost:8787/ws
+    steps:
+      # Actions are pinned to full commit SHAs (supply-chain hardening); the tag is noted alongside.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # Lighthouse runs on Playwright's Chromium, pinned by the lockfile.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build -w @zipply/web
+      - name: Initial bundle budget
+        run: node scripts/performance/budget.mjs apps/web/dist
+      - name: Start local signaling and preview
+        run: |
+          npm run dev -w @zipply/signaling -- --port 8787 --var ALLOWED_ORIGINS:http://localhost:4173 > /dev/null 2>&1 &
+          npm run preview -w @zipply/web -- --strictPort --port 4173 > /dev/null 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8787/healthz > /dev/null && curl -sf http://localhost:4173/ > /dev/null && exit 0
+            sleep 1
+          done
+          echo "::error::servers did not start"; exit 1
+      - name: Lighthouse (3 mobile + 3 desktop runs)
+        run: node scripts/performance/lighthouse.mjs http://localhost:4173/ reports/lighthouse
+      - name: Apply floors (median)
+        run: node scripts/performance/compare-scores.mjs "Lighthouse CI (local preview)" reports/lighthouse
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lighthouse-reports
+          path: reports/lighthouse
+          retention-days: 14
+          if-no-files-found: ignore

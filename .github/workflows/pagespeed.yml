@@ -1,0 +1,59 @@
+name: PageSpeed Insights
+
+# P8-04: PageSpeed Insights API v5 against the public production URL (spec §42). Skipped until the
+# owner sets the PAGESPEED_TARGET_URL variable; the key lives only in the PAGESPEED_API_KEY secret.
+on:
+  schedule:
+    - cron: '17 3 * * *' # daily, low-traffic UTC hour
+  workflow_dispatch:
+  deployment_status:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pagespeed
+  cancel-in-progress: false
+
+jobs:
+  pagespeed:
+    name: Mobile and desktop (3 runs each)
+    if: >-
+      vars.PAGESPEED_TARGET_URL != '' &&
+      (github.event_name != 'deployment_status' ||
+       (github.event.deployment_status.state == 'success' &&
+        github.event.deployment.environment == 'Production'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PAGESPEED_TARGET_URL: ${{ vars.PAGESPEED_TARGET_URL }}
+      PAGESPEED_MIN_MOBILE_PERFORMANCE: ${{ vars.PAGESPEED_MIN_MOBILE_PERFORMANCE }}
+      PAGESPEED_MIN_DESKTOP_PERFORMANCE: ${{ vars.PAGESPEED_MIN_DESKTOP_PERFORMANCE }}
+      PAGESPEED_MIN_ACCESSIBILITY: ${{ vars.PAGESPEED_MIN_ACCESSIBILITY }}
+      PAGESPEED_MIN_BEST_PRACTICES: ${{ vars.PAGESPEED_MIN_BEST_PRACTICES }}
+      PAGESPEED_MIN_SEO: ${{ vars.PAGESPEED_MIN_SEO }}
+    steps:
+      # Actions are pinned to full commit SHAs (supply-chain hardening); the tag is noted alongside.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # Vercel reports success when the deployment is ready; give the production alias time to switch.
+      - if: github.event_name == 'deployment_status'
+        run: sleep 60
+      # The scripts use only Node's standard library, so no npm install.
+      - name: Run PageSpeed Insights
+        env:
+          PAGESPEED_API_KEY: ${{ secrets.PAGESPEED_API_KEY }}
+        run: node scripts/performance/pagespeed.mjs reports/pagespeed
+      - name: Apply floors (median)
+        run: node scripts/performance/compare-scores.mjs "PageSpeed Insights (production)" reports/pagespeed
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pagespeed-reports
+          path: reports/pagespeed
+          retention-days: 30
+          if-no-files-found: ignore
