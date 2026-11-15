@@ -2,7 +2,14 @@ import AxeBuilder from '@axe-core/playwright';
 import { createHash } from 'node:crypto';
 import dgram from 'node:dgram';
 import { readFile } from 'node:fs/promises';
-import { expect, test, type Download, type Page, type TestInfo } from '@playwright/test';
+import {
+  expect,
+  test,
+  type BrowserContext,
+  type Download,
+  type Page,
+  type TestInfo,
+} from '@playwright/test';
 
 // Shared by the WebRTC specs: two pages of the real app find each other through the local
 // signaling Worker (`wrangler dev`) and connect over a real RTCPeerConnection. Every DataChannel
@@ -88,15 +95,8 @@ export async function proxySignaling(page: Page, rules: { up?: Rewrite; down?: R
   };
 }
 
-/** `before` runs on each page before it loads, e.g. to put a proxy on its signaling socket. */
-export async function openTabs(
-  page: Page,
-  {
-    lobby = false,
-    before,
-  }: { lobby?: boolean; before?: (p: Page, who: 'sender' | 'receiver') => Promise<unknown> } = {},
-) {
-  const context = page.context();
+/** Counts every DataChannel send of the context's pages, in `window.__sent`. */
+export async function countSends(context: BrowserContext) {
   await context.addInitScript(() => {
     window.__sent = { manifestBytes: 0, payloadBytes: 0, controls: [] };
     window.__dcs = [];
@@ -121,6 +121,18 @@ export async function openTabs(
       return send.call(this, data as ArrayBufferView<ArrayBuffer>);
     };
   });
+}
+
+/** `before` runs on each page before it loads, e.g. to put a proxy on its signaling socket. */
+export async function openTabs(
+  page: Page,
+  {
+    lobby = false,
+    before,
+  }: { lobby?: boolean; before?: (p: Page, who: 'sender' | 'receiver') => Promise<unknown> } = {},
+) {
+  const context = page.context();
+  await countSends(context);
   const sender = await context.newPage();
   await before?.(sender, 'sender');
   await sender.goto('/');

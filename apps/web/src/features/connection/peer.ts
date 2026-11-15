@@ -15,6 +15,10 @@ const CONNECT_TIMEOUT_MS = 30_000;
 const DISCONNECTED_GRACE_MS = 5000;
 const ICE_RECOVERY_MS = 30_000;
 const MAX_ICE_RESTARTS = 2;
+// P7-03: manual pairing has no signaling path, so every candidate goes into the one description
+// (gathering bounded at 10 s), there is no ICE restart, and people get 5 minutes to carry the codes.
+const GATHER_TIMEOUT_MS = 10_000;
+const MANUAL_CONNECT_TIMEOUT_MS = 5 * 60_000;
 
 /** STUN servers from build-time config (SD-11); TURN and other schemes are ignored. */
 export function iceServers(value: string | undefined): RTCIceServer[] {
@@ -41,6 +45,8 @@ export interface PeerOptions {
   files?: File[];
   /** A paused transfer to continue on this new connection, after a new word check (P6-05). */
   resume?: Session;
+  /** Manual pairing (P7-03): descriptions are carried by people, not by signaling. */
+  manual?: boolean;
 }
 
 /** The selected route for the debug panel: candidate types and protocol, never addresses. */
@@ -84,9 +90,26 @@ export function createPeer(o: PeerOptions) {
   let recovery: ReturnType<typeof setTimeout> | undefined;
   let grace: ReturnType<typeof setTimeout> | undefined;
   let queue = Promise.resolve();
-  const timer = setTimeout(() => {
-    if (channel.readyState !== 'open') close();
-  }, CONNECT_TIMEOUT_MS);
+  const timer = setTimeout(
+    () => {
+      if (channel.readyState !== 'open') close();
+    },
+    o.manual ? MANUAL_CONNECT_TIMEOUT_MS : CONNECT_TIMEOUT_MS,
+  );
+
+  /** Manual mode: resolves once every candidate is in the local description, or after 10 s. */
+  const gathered = () =>
+    new Promise<void>((resolve) => {
+      if (!o.manual || pc.iceGatheringState === 'complete') return resolve();
+      const done = () => {
+        clearTimeout(limit);
+        pc.removeEventListener('icegatheringstatechange', check);
+        resolve();
+      };
+      const check = () => pc.iceGatheringState === 'complete' && done();
+      const limit = setTimeout(done, GATHER_TIMEOUT_MS);
+      pc.addEventListener('icegatheringstatechange', check);
+    });
 
   const sessionOptions = {
     channel,
@@ -118,7 +141,7 @@ export function createPeer(o: PeerOptions) {
   }
 
   pc.addEventListener('icecandidate', ({ candidate }) => {
-    if (!candidate || !connId) return;
+    if (!candidate || !connId || o.manual) return;
     o.send({
       type: 'ice-candidate',
       payload: {
@@ -153,7 +176,7 @@ export function createPeer(o: PeerOptions) {
 
   /** Offerer: ICE restart over signaling; the DTLS association and its fingerprints stay. */
   function restart() {
-    if (o.role !== 'offerer' || !cOText || restarts >= MAX_ICE_RESTARTS) return;
+    if (o.role !== 'offerer' || o.manual || !cOText || restarts >= MAX_ICE_RESTARTS) return;
     restarts++;
     queue = queue
       .then(async () => {
@@ -226,6 +249,7 @@ export function createPeer(o: PeerOptions) {
       cOText = signal.cO;
       nAText = toB64url(nA);
       startSession({ ...sessionOptions, role: 'answerer', secrets: { connId, cO, nA } });
+      await gathered();
       if (closed) return;
       o.send({
         type: 'answer',
@@ -259,6 +283,7 @@ export function createPeer(o: PeerOptions) {
       pending = { nO, cO };
       cOText = toB64url(cO);
       await pc.setLocalDescription();
+      await gathered();
       o.send({
         type: 'offer',
         payload: {

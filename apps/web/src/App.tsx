@@ -1,5 +1,5 @@
 import { PROTOCOL_VERSION } from '@zipply/protocol';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from 'react';
 import { ConnectionPanel } from './features/connection/ConnectionPanel';
 import type { LinkSnapshot } from './features/connection/link';
 import { iceServers, stunHosts } from './features/connection/peer';
@@ -10,6 +10,7 @@ import {
   rememberName,
   storedName,
 } from './features/presence/discovery';
+import { createPairing } from './features/pairing/pairing';
 import { NameControl } from './features/presence/NameControl';
 import { RoomControl } from './features/presence/RoomControl';
 import { createRoom, readRoom } from './features/presence/room';
@@ -23,6 +24,7 @@ import { discoveryStatus, type Connection } from './features/radar/status';
 import type { PeerState, RadarPeer } from './features/radar/types';
 import { ThemeControl } from './features/settings/ThemeControl';
 import { LeftoverNotice } from './features/transfer/LeftoverNotice';
+import { registerShell } from './features/settings/shell';
 import { useTheme } from './features/settings/theme';
 import { Button } from './ui/Button';
 import { LiveRegion } from './ui/LiveRegion';
@@ -34,6 +36,18 @@ const demo = import.meta.env.DEV ? readDemo(window.location.search) : null;
 const WIDTH = 'mx-auto w-full max-w-[56rem] px-4 sm:px-6';
 const ICE = iceServers(import.meta.env.VITE_STUN_URLS as string | undefined);
 const STUN = stunHosts(ICE);
+// QR and camera code load only when local pairing is opened (spec: lazy QR modules).
+const PairingPanel = lazy(() => import('./features/pairing/PairingPanel'));
+const IDLE = ['idle', 'ended'];
+
+const onlineEvents = (fn: () => void) => {
+  addEventListener('online', fn);
+  addEventListener('offline', fn);
+  return () => {
+    removeEventListener('online', fn);
+    removeEventListener('offline', fn);
+  };
+};
 
 function peerState(link: LinkSnapshot, peerId: string): PeerState {
   if (link.peerId !== peerId) return 'available';
@@ -55,6 +69,16 @@ export default function App() {
     }),
   );
   const live = useSyncExternalStore(discovery.subscribe, discovery.getSnapshot);
+  const [pairing] = useState(() => createPairing({ iceServers: ICE }));
+  const paired = useSyncExternalStore(pairing.subscribe, pairing.getSnapshot);
+  const [pairingOpen, setPairingOpen] = useState(false);
+  const browserOnline = useSyncExternalStore(onlineEvents, () => navigator.onLine);
+  const [applyUpdate, setApplyUpdate] = useState<(() => void) | null>(null);
+
+  // P7-02: the offline shell exists only in production builds (the dev server has no sw.js).
+  useEffect(() => {
+    if (import.meta.env.PROD) registerShell((apply) => setApplyUpdate(() => apply));
+  }, []);
 
   useEffect(() => {
     if (demo) return;
@@ -83,6 +107,16 @@ export default function App() {
     }));
   const selected = peers.find((p) => p.id === selectedId) ?? null;
   const online = !demo && live.presence.status === 'online';
+  // One connection at a time: online and local pairing never run side by side.
+  const pairingBusy = !IDLE.includes(paired.phase);
+  const linkBusy = !IDLE.includes(link.phase);
+  useEffect(() => {
+    if (pairingBusy && link.phase === 'incoming') discovery.decline();
+  }, [pairingBusy, link.phase, discovery]);
+  const openPairing = () => {
+    setPairingOpen(true);
+    requestAnimationFrame(() => document.getElementById('pairing-heading')?.scrollIntoView?.());
+  };
 
   const { discoverable, name } = live;
   const changeVisibility = (next: boolean) => {
@@ -144,17 +178,28 @@ export default function App() {
                 )
               }
             />
-            {live.presence.unavailable && (
+            {!demo && (connection === 'offline' || !browserOnline) && (
               <div role="alert" className="mb-6 rounded-2xl border border-gray-300 p-5">
-                <p className="font-medium">Discovery temporarily unavailable</p>
-                <p className="mt-2 text-[13px] text-gray-600">
-                  The online service is not reachable or is over its free daily limit. Your files
-                  never go through it. Zipply keeps retrying; pairing without the online service is
-                  planned but not available yet.
+                <p className="font-medium">
+                  {browserOnline && live.presence.unavailable
+                    ? 'Discovery temporarily unavailable'
+                    : 'Offline — radar unavailable'}
                 </p>
-                <Button className="mt-4" onClick={discovery.retry}>
-                  Retry now
-                </Button>
+                <p className="mt-2 text-[13px] text-gray-600">
+                  {browserOnline && live.presence.unavailable
+                    ? 'The online service is not reachable or is over its free daily limit. Your files never go through it. Zipply keeps retrying.'
+                    : 'The online service cannot be reached, so the radar cannot show anyone.'}{' '}
+                  You can still try local pairing: you exchange a code with the other device
+                  yourself.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <Button variant="primary" onClick={openPairing}>
+                    Try local pairing
+                  </Button>
+                  {live.presence.unavailable && (
+                    <Button onClick={discovery.retry}>Retry now</Button>
+                  )}
+                </div>
               </div>
             )}
             <div className="overflow-hidden rounded-2xl border border-gray-200 px-4 pt-8 pb-10 shadow-card sm:px-8">
@@ -191,7 +236,24 @@ export default function App() {
               />
             )}
             {!demo && (
-              <div className="rounded-2xl border border-gray-200 p-5 sm:col-span-2 lg:col-span-1">
+              <section
+                aria-labelledby="local-pairing-card"
+                className="rounded-2xl border border-gray-200 p-5"
+              >
+                <h3 id="local-pairing-card" className="font-medium">
+                  Local pairing
+                </h3>
+                <p className="mt-2 text-[13px] text-gray-600">
+                  Connect without the online service by exchanging a code or QR. Best effort: the
+                  devices must reach each other directly.
+                </p>
+                <Button className="mt-4" onClick={openPairing}>
+                  Try local pairing
+                </Button>
+              </section>
+            )}
+            {!demo && (
+              <div className="rounded-2xl border border-gray-200 p-5">
                 <NameControl
                   name={name}
                   custom={live.customName}
@@ -240,6 +302,32 @@ export default function App() {
             />
           </section>
         )}
+        {pairingOpen && (
+          <section aria-labelledby="pairing-heading" className="mt-14">
+            <SectionHeader id="pairing-heading" index="03" title="local pairing" />
+            <Suspense fallback={<p className="text-[13px] text-gray-600">Loading…</p>}>
+              <PairingPanel pairing={pairing} busy={linkBusy} />
+            </Suspense>
+            {!pairingBusy && paired.phase === 'idle' && (
+              <Button className="mt-6" onClick={() => setPairingOpen(false)}>
+                Close local pairing
+              </Button>
+            )}
+          </section>
+        )}
+        {applyUpdate && (
+          <div role="status" className="mt-14 rounded-2xl border border-gray-300 p-5">
+            <p className="font-medium">A new version of Zipply is ready.</p>
+            <p className="mt-2 text-[13px] text-gray-600">
+              {linkBusy || pairingBusy
+                ? 'Reloading would end the current connection, so finish or close it first.'
+                : 'Reload to use it. Nothing you are sharing is affected.'}
+            </p>
+            <Button className="mt-4" disabled={linkBusy || pairingBusy} onClick={applyUpdate}>
+              Reload
+            </Button>
+          </div>
+        )}
         {!demo && <LeftoverNotice />}
       </main>
 
@@ -252,7 +340,7 @@ export default function App() {
       <PeerDetails
         peer={selected}
         stun={STUN}
-        canRequest={online && link.phase === 'idle'}
+        canRequest={online && link.phase === 'idle' && !pairingBusy}
         onRequest={(files) => selected && discovery.request(selected.id, selected.name, files)}
         onClose={() => setSelectedId(null)}
       />
