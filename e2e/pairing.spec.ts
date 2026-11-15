@@ -157,7 +157,8 @@ test('the QR code on screen decodes to exactly the pairing code (P7-04)', async 
       }
     ).jsQR(data, c.width, c.height)?.data;
   }, png.toString('base64'));
-  expect(decoded).toBe(code);
+  // A boolean, so a failure never prints the code (it holds network addresses) into CI logs.
+  expect(decoded === code, 'the QR decodes to the pairing code').toBe(true);
 });
 
 // Chromium's fake camera plays a Y4M file; it is written after launch, before the camera starts.
