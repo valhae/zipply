@@ -19,13 +19,17 @@ export function Qr({ text, label }: { text: string; label: string }) {
   }, [text]);
 
   if (!qr) return <p className="text-[13px] text-gray-600">Drawing the QR code…</p>;
+  // Whole pixels per module: fractional scales snap unevenly and some sizes fail to decode.
+  const px = qr.size * Math.max(2, Math.floor(352 / qr.size));
   return (
     <svg
       role="img"
       aria-label={label}
       viewBox={`0 0 ${qr.size} ${qr.size}`}
+      width={px}
+      height={px}
       shapeRendering="crispEdges"
-      className="aspect-square w-full max-w-[22rem] rounded-lg bg-white"
+      className="h-auto max-w-full rounded-lg bg-white"
     >
       <path d={qr.d} fill="#000" />
     </svg>
