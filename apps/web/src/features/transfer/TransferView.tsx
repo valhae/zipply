@@ -86,7 +86,7 @@ function statusText(s: Snapshot, direction: Direction, peer: string): string {
       return direction === 'send' ? 'Sending…' : 'Receiving…';
     case 'paused':
       return direction === 'send'
-        ? `Paused: the connection to ${peer} was lost. Reconnect when you are both online; you will check words again.`
+        ? `Paused: the connection to ${peer} was lost. Reconnect when you can reach each other again; you will check words again.`
         : `Paused: the connection was lost. Waiting for ${peer} to reconnect; you will check words again.`;
     case 'completed':
       if (direction === 'send') return 'Done. The receiver verified every file.';

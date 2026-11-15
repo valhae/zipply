@@ -58,6 +58,12 @@ export default tseslint.config(
   },
   { files: ['apps/web/src/**/*.tsx'], ...jsxA11y.flatConfigs.recommended },
   {
+    // P7-02: the service worker runs in its own global scope and, like shipped code, never logs.
+    files: ['apps/web/sw.js'],
+    languageOptions: { globals: globals.serviceworker },
+    rules: { 'no-console': 'error' },
+  },
+  {
     // P5-07: shipped code never logs (SDP, ICE, names, SAS inputs and capabilities stay out of logs).
     files: ['apps/*/src/**/*.{ts,tsx}', 'packages/protocol/src/**/*.ts'],
     ignores: ['**/*.test.{ts,tsx}'],

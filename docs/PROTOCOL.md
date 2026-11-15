@@ -56,6 +56,17 @@ The `offer`, `answer` and `ice-candidate` messages carry everything needed to op
 - A connection that has not opened its DataChannel within 30 seconds is closed.
 - STUN servers come from the build-time variable `VITE_STUN_URLS` (`stun:`/`stuns:` URLs only); there is no TURN relay.
 
+### 1.6 Manual pairing codes (P7-03, P7-04)
+
+Without the signaling service, the two users carry the offer and the answer themselves, as text or QR. Everything after that is the same connection as in section 1.5 and the same DataChannel protocol (section 2): the SAS commitment, the spoken-and-typed word check and the receiver's Accept files all still apply.
+
+- **Roles:** the sending device is the offerer and creates the first code; the receiving device uses it and creates the answer code; the sender uses the answer code. Each step is a local button press. A scanned QR only fills the text field; nothing is accepted or created by scanning.
+- **No trickle ICE:** each side waits until ICE gathering is complete (at most 10 seconds) and puts every candidate it found into its one description. No `ice-candidate` message exists in manual mode.
+- **Code format:** `zipply1.` followed by base64url (no padding) of `deflate-raw(JSON)`, where the JSON object has exactly the keys `t` (`"o"` offer or `"a"` answer), `c` (`connId`), `k` (`cO` for an offer, `nA` for an answer) and `s` (the SDP). Spaces and line breaks in a pasted code are ignored. Measured on 2026-11-15 (Chromium 156, one host candidate, no STUN): 659–768 characters; a single QR code (error correction L) holds it.
+- **Validation:** a code longer than 24,576 characters is refused before decoding; inflation stops as soon as the output passes 16,896 bytes (the SDP limit plus 512 bytes), so a small code cannot expand into a large one; the JSON must have exactly the keys above; and the result goes through the same `offer`/`answer` schema as a signaling message (`id16`/`id32` identifiers, SDP ≤ 16 KiB). A code of the wrong kind (an answer where an offer is expected, or the reverse) is refused.
+- **Timeouts and recovery:** a manual connection that has not opened its DataChannel within 5 minutes is closed. There is no ICE restart (no path exists for a second description); a transfer whose connection is lost for 30 seconds pauses (section 2.3) and continues on a new manual connection: the sender creates a new code, and the receiver uses it, with a fresh word check (D4).
+- **Privacy:** a code contains SDP with ICE candidates, i.e. network addresses. It is kept in memory only, shown to the user, never logged, stored, cached by the service worker or sent anywhere by Zipply.
+
 ## 2. DataChannel messages
 
 Every DataChannel message is either a **control message** (a JSON text frame) or a **chunk frame** (a binary frame). Both are validated at the boundary; anything malformed, unknown or out of state fails the connection closed.

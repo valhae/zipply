@@ -62,6 +62,7 @@ const pcs: FakePc[] = [];
 class FakePc extends EventTarget {
   connectionState = 'new';
   iceConnectionState = 'new';
+  iceGatheringState = 'new';
   restarted = 0;
   closed = false;
   ufrag = 0;
@@ -88,6 +89,17 @@ class FakePc extends EventTarget {
   async setLocalDescription() {
     const type = this.remoteDescription?.type === 'offer' ? 'answer' : 'offer';
     this.localDescription = { type, sdp: sdp('AA', ++this.ufrag) };
+    this.iceGatheringState = 'gathering';
+  }
+  /** Gathering finished: the description now carries its candidates. */
+  async gather() {
+    await vi.waitFor(() => expect(this.localDescription).not.toBeNull());
+    const d = this.localDescription!;
+    this.localDescription = { ...d, sdp: `${d.sdp}a=candidate:1\r\n` };
+    const candidate = { toJSON: () => ({ candidate: 'candidate:1', sdpMid: '0' }) };
+    this.dispatchEvent(Object.assign(new Event('icecandidate'), { candidate }));
+    this.iceGatheringState = 'complete';
+    this.dispatchEvent(new Event('icegatheringstatechange'));
   }
   async setRemoteDescription(d: RTCSessionDescriptionInit) {
     this.remoteDescription = d;
@@ -310,6 +322,91 @@ describe('resume on a new connection (P6-05)', () => {
     await flush();
     expect(a.pc.closed).toBe(true);
     expect(a.onSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('manual pairing (P7-03): one description with every candidate, no signaling path', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('RTCPeerConnection', FakePc);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    pcs.length = 0;
+  });
+
+  it('the offer waits for ICE gathering and carries the candidates; none are sent separately', async () => {
+    const o = open('offerer', { manual: true });
+    const started = o.peer.start();
+    await flush();
+    expect(o.sent).toEqual([]);
+    await o.pc.gather();
+    await started;
+    expect(o.sent).toHaveLength(1);
+    expect(o.sent[0]).toMatchObject({ type: 'offer' });
+    expect((o.sent[0] as Extract<Signal, { type: 'offer' }>).payload.sdp).toContain(
+      'a=candidate:1',
+    );
+  });
+
+  it('sends what was gathered after 10 s instead of waiting forever', async () => {
+    const o = open('offerer', { manual: true });
+    const started = o.peer.start();
+    await vi.waitFor(() => expect(o.pc.localDescription).not.toBeNull());
+    await vi.advanceTimersByTimeAsync(9000);
+    expect(o.sent).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1500);
+    await started;
+    expect(o.sent).toHaveLength(1);
+  });
+
+  it('the answer also waits for gathering', async () => {
+    const a = open('answerer', { manual: true });
+    a.peer.handle({
+      type: 'offer',
+      payload: { requestId: REQ, connId: ID(1), sdp: sdp('BB', 1), cO: C32 },
+    });
+    await flush();
+    expect(a.sent).toEqual([]);
+    await a.pc.gather();
+    await flush();
+    expect(a.sent).toEqual([expect.objectContaining({ type: 'answer' })]);
+    expect((a.sent[0] as Extract<Signal, { type: 'answer' }>).payload.sdp).toContain(
+      'a=candidate:1',
+    );
+  });
+
+  it('never restarts ICE (there is no path for a new description); the 30 s recovery still closes', async () => {
+    const o = open('offerer', { manual: true });
+    const started = o.peer.start();
+    await o.pc.gather();
+    await started;
+    const offer = o.sent[0] as Extract<Signal, { type: 'offer' }>;
+    o.peer.handle({
+      type: 'answer',
+      payload: { requestId: REQ, connId: offer.payload.connId, sdp: sdp('BB', 1), nA: ID(9) },
+    });
+    await flush();
+    o.pc.channel.open();
+    o.pc.setState('connected');
+    o.pc.setState('failed');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(o.pc.restarted).toBe(0);
+    expect(o.sent).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(21_000);
+    expect(o.pc.closed).toBe(true);
+  });
+
+  it('gives people 5 minutes to carry the codes across instead of 30 s', async () => {
+    const o = open('offerer', { manual: true });
+    void o.peer.start();
+    await o.pc.gather();
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    expect(o.pc.closed).toBe(false);
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(o.pc.closed).toBe(true);
+    expect(o.onClosed).toHaveBeenCalled();
   });
 });
 

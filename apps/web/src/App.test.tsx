@@ -42,6 +42,23 @@ describe('App', () => {
     expect(screen.queryByTestId('radar-sweep')).toBeNull();
   });
 
+  it('offline: says the radar is unavailable and offers local pairing (P7-05)', async () => {
+    render(<App />);
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toMatch(/^Offline — radar unavailable/);
+    expect(alert.textContent).not.toMatch(/nearby|scanning|searching/i);
+    fireEvent.click(within(alert).getByRole('button', { name: 'Try local pairing' }));
+    expect(await screen.findByRole('heading', { name: /local pairing/ })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Create pairing code' })).toBeTruthy();
+  });
+
+  it('local pairing is also offered while online, from its own card', async () => {
+    render(<App />);
+    const card = screen.getByRole('region', { name: 'Local pairing' });
+    fireEvent.click(within(card).getByRole('button', { name: 'Try local pairing' }));
+    expect(await screen.findByRole('button', { name: 'Create answer' })).toBeTruthy();
+  });
+
   it('starts hidden and toggles discoverability with an announcement', () => {
     render(<App />);
     const toggle = screen.getByRole('switch', { name: 'Discoverable' });
